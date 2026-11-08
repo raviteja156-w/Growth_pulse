@@ -1,0 +1,46 @@
+{% extends "base.html" %}{% block c %}
+<div class="max-w-3xl mx-auto">
+<a href="{{ url_for('course',cid=c.id) }}" class="text-sm text-cyan-300 inline-block py-1">← Back to plan</a>
+<div class="flex flex-wrap justify-between items-start gap-2 mt-1">
+<div><div class="text-cyan-300 font-bold text-sm md:text-base">Day {{n}} of {{last}} · {{c.title}}</div><h2 class="text-2xl md:text-3xl font-bold glow">{{ L.title or d.focus|join(', ') }}</h2></div>
+{% if done %}<span class="g px-3 py-1 border-emerald-400 text-sm">✅ Completed</span>{% endif %}</div>
+
+{% if L.intro %}<div class="g p-4 md:p-5 mt-4 pl"><div class="mini text-cyan-300 mb-1">🌱 Let's begin</div>{{ L.intro }}</div>{% endif %}
+
+{% if L.words %}<div class="g p-4 md:p-5 mt-3"><h3 class="font-bold text-cyan-300">📘 Words you will meet today</h3>
+<dl class="mt-2 space-y-2 text-sm md:text-base">{% for w in L.words %}<div><dt class="font-semibold inline">{{ w.term }}</dt> <dd class="inline text-slate-300">– {{ w.meaning }}</dd></div>{% endfor %}</dl></div>{% endif %}
+
+{% for s in L.sections %}<section class="g p-4 md:p-5 mt-3">
+<h3 class="font-bold text-lg text-cyan-300"><span class="inline-block bg-cyan-500/20 rounded-full w-7 h-7 text-center leading-7 mr-1 text-sm">{{ loop.index }}</span>{{ s.h }}</h3>
+<p class="mt-2 pl">{{ s.body }}</p>
+{% if s.analogy %}<div class="mt-3 p-3 rounded-lg bg-violet-500/10 border border-violet-400/30 text-sm md:text-base pl">🧠 <b>Think of it like this:</b> {{ s.analogy }}</div>{% endif %}
+{% if s.example %}<div class="mt-3"><div class="text-sm font-semibold mb-1">💡 Example</div>
+{% if s.math %}{{ s.example|ink }}{% else %}<div class="p-3 rounded-lg bg-slate-900/60 text-sm md:text-base pl">{{ s.example }}</div>{% endif %}</div>{% endif %}
+{% if s.mistake %}<div class="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-400/30 text-sm pl">⚠️ <b>Common mistake:</b> {{ s.mistake }}</div>{% endif %}
+</section>{% endfor %}
+
+{% if L.recap %}<div class="g p-4 md:p-5 mt-3 border-emerald-400"><h3 class="font-bold">✅ Quick recap</h3><ul class="list-disc pl-6 text-sm md:text-base mt-1 space-y-1">{% for r in L.recap %}<li>{{ r }}</li>{% endfor %}</ul></div>{% endif %}
+
+{% if L.practice %}<div class="g p-4 md:p-5 mt-3"><h3 class="font-bold">✏️ Try these yourself</h3>
+<p class="text-xs text-slate-400">Try on paper first. Then open the solution to check.</p>
+<div class="mt-2 space-y-3">{% for r in L.practice %}{% set pq = r.q if r is mapping else r %}{% set pa = r.answer if r is mapping else '' %}
+<div class="rounded-lg bg-slate-900/50 p-3"><p class="text-sm md:text-base pl"><b>{{ loop.index }}.</b> {{ pq }}</p>
+{% if pa %}<details class="mt-2"><summary class="text-cyan-300 text-sm">👀 Show solution</summary>{% if L.math %}{{ pa|ink }}{% else %}<div class="mt-2 text-sm md:text-base pl">{{ pa }}</div>{% endif %}</details>{% endif %}</div>{% endfor %}</div></div>{% endif %}
+
+<form method="post" action="{{ url_for('day_refresh',cid=c.id,n=n) }}" class="mt-3" onsubmit="this.querySelector('button').textContent='⏳ Writing again…'"><button class="text-sm text-cyan-300 underline py-2">🔄 Did not understand? Explain this lesson again</button></form>
+
+<section id="chat" class="mt-8"><h3 class="text-xl font-bold mb-2">🤔 Ask your doubts about this day</h3>
+<div class="space-y-3">{% for m in chats %}{% if m.role=='user' %}<div class="g p-3 text-sm md:text-base pl border-cyan-300"><b>You:</b> {{ m.msg }}</div>
+{% else %}<div class="g p-3 border-emerald-400"><div class="font-bold text-sm mb-1">🤖 Tutor</div>{{ m.msg|ans }}</div>{% endif %}
+{% else %}<p class="text-sm text-slate-400">No doubts yet. Type a question or upload a photo of your handwritten note.</p>{% endfor %}</div>
+<form method="post" action="{{ url_for('ask',cid=c.id,n=n) }}" enctype="multipart/form-data" class="g p-4 mt-3 space-y-3" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Thinking…'">
+<textarea class="in" name="question" rows="3" placeholder="Type your doubt here (or just upload your handwritten note)"></textarea>
+<label class="block text-sm text-slate-300">📎 Handwritten note (photo) <span class="text-amber-300">– write clearly, dark pen, good light</span></label>
+<input class="in" type="file" name="note" accept="image/*" multiple>
+<button class="btn w-full md:w-auto">Ask AI</button></form></section>
+
+<div class="grid grid-cols-2 md:flex md:flex-wrap gap-3 mt-8 items-center">
+<form method="post" action="{{ url_for('day_done',cid=c.id,n=n) }}" class="col-span-2">{% if done %}<input type="hidden" name="undo" value="1"><button class="g px-4 py-3 w-full md:w-auto">↩ Mark as not done</button>{% else %}<button class="btn w-full md:w-auto">✅ Mark Day {{n}} complete</button>{% endif %}</form>
+{% if n>1 %}<a class="g px-4 py-3 text-center" href="{{ url_for('day',cid=c.id,n=n-1) }}">← Day {{n-1}}</a>{% endif %}{% if n<last %}<a class="g px-4 py-3 text-center {{ 'col-start-2' if n==1 }}" href="{{ url_for('day',cid=c.id,n=n+1) }}">Day {{n+1}} →</a>{% endif %}</div>
+</div>
+{% endblock %}

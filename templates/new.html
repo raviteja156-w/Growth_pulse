@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% block c %}
+<form method="post" enctype="multipart/form-data" class="g p-6 max-w-2xl mx-auto mt-4 space-y-3">
+<h2 class="text-2xl font-bold glow">{{ '🎓 New exam plan' if track=='college' else '🚀 New growth plan' }}</h2>
+{% if track=='college' %}<select class="in" name="exam"><option>Semester Exam</option><option>Internal Exam 1</option><option>Internal Exam 2</option><option>Internal Exam 3</option><option>Lab Exam</option></select><input class="in" name="title" placeholder="Subject name" required>{% endif %}
+<label class="block text-sm text-slate-300">{{ 'Upload syllabus (PDF or text file from your computer)' if track=='college' else 'Upload notes or resources (optional)' }}</label>
+<input class="in" type="file" name="files" multiple accept=".pdf,.txt,.md">
+<label class="block text-sm text-slate-300">{{ 'Specific topics (required for internal and lab exams)' if track=='college' else 'Skills you already know / extra notes' }}</label><textarea class="in" name="topics" rows="3"></textarea>
+{% if track=='college' %}<label class="block text-sm text-slate-300">Previous question papers (optional, repeated topics get priority)</label><input class="in" type="file" name="papers" multiple accept=".pdf,.txt">{% endif %}
+<label class="block text-sm text-slate-300">How many days do you want to train?</label><input class="in" type="number" name="days" min="1" max="120" value="15" required>
+<button class="btn w-full">Build my plan</button><p class="text-xs text-slate-400">The AI may take up to a minute. Please keep this page open.</p></form>{% endblock %}

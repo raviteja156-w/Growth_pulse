@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block c %}
+<form method="post" class="g p-6 max-w-md mx-auto mt-4 space-y-3"><h2 class="text-2xl font-bold glow">Complete your profile</h2>
+<input class="in" name="name" value="{{me.name}}" placeholder="Name" required><input class="in" value="{{me.email}}" disabled><input class="in" name="phone" value="{{me.phone}}" placeholder="Contact" required>
+<input class="in" name="profession" value="{{me.profession}}" placeholder="Profession (e.g. B.Tech student)" required><input class="in" name="goal" value="{{me.goal}}" placeholder="What do you want to become?" required><button class="btn w-full">Save profile</button></form>{% endblock %}

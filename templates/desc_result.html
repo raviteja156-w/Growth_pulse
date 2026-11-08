@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% block c %}
+<h2 class="text-2xl font-bold glow mt-4">📊 Written test result: {{c.title}}</h2>
+{% if out_of %}<div class="g p-4 mt-3 text-xl">Score: <b class="text-cyan-300">{{score}}/{{out_of}}</b></div>{% endif %}
+{% if coach %}<div class="g p-4 mt-3 whitespace-pre-line">🧭 {{coach}}</div>{% endif %}
+{% for r in review %}{% set good = r.status=='graded' and r.score>=7 %}
+<div class="g p-4 mt-3 {{ 'border-emerald-400' if good else 'border-amber-400' if r.status=='graded' and r.score>=4 else 'border-rose-400' }}">
+<div class="text-xs text-cyan-300">{{r.topic}}</div><p class="font-semibold">{{loop.index}}. {{r.q}}</p>
+{% if r.status=='graded' %}<p class="mt-1">{{ '✅' if good else '❌' if r.score<4 else '🟡' }} <b>{{ r.verdict|capitalize }}</b> · {{r.score}}/10</p>
+{% elif r.status=='unreadable' %}<p class="mt-1">📷 <b>Could not read your handwriting.</b></p>
+{% elif r.status=='skipped' %}<p class="mt-1">⏭️ Not attempted (0/10)</p>{% else %}<p class="mt-1">⚠️ Not checked</p>{% endif %}
+<p class="text-sm mt-1 whitespace-pre-line">{{r.feedback}}</p>{% if r.fix %}<div class="mt-3"><div class="text-sm font-semibold">✅ Correct approach</div>{{ r.fix|ans }}</div>{% endif %}</div>{% endfor %}
+<div class="mt-4 grid sm:flex gap-3 flex-wrap text-center"><a class="btn" href="{{ url_for('test_desc',cid=c.id) }}">Retry with clearer answers</a><a class="g px-4 py-2" href="{{ url_for('test_desc',cid=c.id,fresh=1) }}">New questions</a><a class="g px-4 py-2" href="{{ url_for('analysis',cid=c.id) }}">Topic analysis</a><a class="g px-4 py-2" href="{{ url_for('course',cid=c.id) }}">Back to plan</a></div>{% endblock %}

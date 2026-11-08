@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block c %}
+<div class="g p-6 max-w-lg mx-auto mt-4 text-center">
+{% if me.pay_status=='approved' %}<div class="text-6xl float">🎉</div><h2 class="text-2xl font-bold glow">Payment approved</h2><p class="text-slate-300 my-3">All features are unlocked.</p><a class="btn" href="{{ url_for('dashboard') }}">Go to dashboard</a>
+{% else %}<h2 class="text-2xl font-bold glow">Unlock all features for ₹50</h2>
+<ol class="text-left text-sm text-slate-300 my-3 list-decimal pl-6"><li>Scan the QR below and pay ₹50.</li><li>Upload the payment screenshot.</li><li>Admin approves it and your account unlocks.</li></ol>
+<img src="{{ url_for('static',filename='qr.png') }}" onerror="this.onerror=null;this.src='{{ url_for('static',filename='qr.svg') }}'" class="w-56 mx-auto rounded-xl bg-white p-2" alt="Payment QR">
+{% if me.pay_status=='pending' %}<p class="mt-4 text-amber-300">⏳ Screenshot received. Waiting for admin approval.</p>{% elif me.pay_status=='rejected' %}<p class="mt-4 text-rose-300">❌ Previous payment was rejected. Please upload again.</p>{% endif %}
+<form method="post" enctype="multipart/form-data" class="mt-4 space-y-3"><input class="in" type="file" name="shot" accept="image/*" required><button class="btn w-full">Submit screenshot</button></form>{% endif %}</div>{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% block c %}
+<h2 class="text-2xl md:text-3xl font-bold glow">{{c.title}} <span class="text-sm text-cyan-300">{{c.exam}}</span></h2>
+<div class="flex gap-3 my-4 flex-wrap"><a class="btn" href="{{ url_for('test',cid=c.id) }}">📝 Take a test</a><a class="g px-4 py-2" href="{{ url_for('analysis',cid=c.id) }}">📊 Analysis</a>
+<form method="post" action="{{ url_for('retrain',cid=c.id) }}"><button class="g px-4 py-2">🔁 Retrain plan</button></form></div>
+{% if c.research %}<details class="g p-4 mb-4 border-emerald-400"><summary class="font-semibold text-emerald-300">🌐 Researched from the web: important topics &amp; frequently asked questions (tap to read)</summary><div class="pl text-sm md:text-base mt-3">{{ c.research }}</div></details>{% endif %}
+{% if st %}<div class="g p-4 mb-4 border-rose-400">⚠️ Focus first on: {% for t,p in st[:3] %}<b>{{t}}</b> ({{p}}%){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+<div class="flex justify-between text-sm mb-1"><h3 class="font-bold text-xl">Day-by-day plan</h3><span class="text-slate-300">{{ done|length }}/{{ plan|length }} days completed</span></div>
+<div class="h-3 rounded bg-slate-800 mb-4"><div class="h-3 rounded bg-emerald-400" style="width:{{ (done|length*100//(plan|length or 1)) }}%"></div></div>
+<p class="text-sm text-slate-400 mb-3">Tap a day to learn it. Ask your doubts inside the lesson, then mark the day complete.</p>
+<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-3">{% for d in plan %}{% set n=d.day|int %}
+<a href="{{ url_for('day',cid=c.id,n=n) }}" onclick="this.querySelector('.st').textContent='⏳ Preparing your lesson…'" class="g hv p-4 block {{ 'border-emerald-400' if n in done else 'border-cyan-300' if n==nxt }}">
+<div class="flex justify-between"><span class="text-cyan-300 font-bold">Day {{n}}</span><span class="text-xs st">{{ '✅ Done' if n in done else ('▶ Up next' if n==nxt else ('📖 Open' if n in opened else '🔓 Start')) }}</span></div>
+<div class="text-sm mt-1">{{ d.focus|join(', ') }}</div><div class="text-xs text-slate-400 mt-1">💡 {{d.tip}}</div></a>{% endfor %}</div>
+<h3 class="font-bold text-xl mt-8 mb-2">Topics by importance</h3>
+<div class="flex flex-wrap gap-2">{% for t in topics|sort(attribute='importance',reverse=true) %}<span class="g px-3 py-1 text-sm" title="{{t.summary}}">{{ '⭐'*(t.importance|int) }} {{t.name}}</span>{% endfor %}</div>
+{% endblock %}

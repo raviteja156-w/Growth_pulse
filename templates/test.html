@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block c %}
+<form method="post" action="{{ url_for('submit',cid=c.id) }}" class="space-y-4 mt-4"><h2 class="text-2xl font-bold glow">📝 Self test: {{c.title}}</h2>
+{% for x in qs %}{% set i=loop.index0 %}<div class="g p-4"><div class="text-xs text-cyan-300">{{x.topic}}</div><p class="font-semibold mb-2">{{loop.index}}. {{x.q}}</p>
+{% for o in x.options %}<label class="block py-1"><input type="radio" name="a{{i}}" value="{{loop.index0}}" class="mr-2">{{o}}</label>{% endfor %}</div>{% endfor %}
+<button class="btn w-full md:w-auto">Submit test</button></form>{% endblock %}

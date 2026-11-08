@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block c %}
+<form method="post" class="g p-6 max-w-md mx-auto mt-6 space-y-3">
+<h2 class="text-2xl font-bold glow">{{ 'Create your account' if mode=='register' else 'Welcome back' }}</h2>
+{% if mode=='register' %}<input class="in" name="name" placeholder="Full name" required><input class="in" name="phone" placeholder="Contact number" required>{% endif %}
+<input class="in" type="email" name="email" placeholder="Email" required><input class="in" type="password" name="password" placeholder="Password" minlength="6" required>
+<button class="btn w-full">{{ 'Sign up' if mode=='register' else 'Log in' }}</button>
+<p class="text-sm text-slate-300">{% if mode=='register' %}Already registered? <a class="text-cyan-300" href="{{ url_for('login') }}">Log in</a>{% else %}New here? <a class="text-cyan-300" href="{{ url_for('register') }}">Create account</a>{% endif %}</p></form>{% endblock %}

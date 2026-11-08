@@ -1,0 +1,11 @@
+{% extends "base.html" %}{% block c %}
+<h2 class="text-3xl font-bold glow">Hi {{ me.name.split()[0] }} 👋</h2>
+{% if me.pay_status!='approved' %}<a href="{{ url_for('pay') }}" class="g block p-4 mt-4 border-amber-400 hv">🔒 Features are locked. {% if me.pay_status=='pending' %}Payment is waiting for admin approval.{% elif me.pay_status=='rejected' %}Your payment was rejected, please upload a clear screenshot again.{% else %}Pay ₹50 once to unlock everything.{% endif %} <b class="text-cyan-300">Open payment page</b></a>{% endif %}
+<div class="grid md:grid-cols-2 gap-5 mt-6">
+<a href="{{ url_for('new',track='college') }}" class="g hv p-7"><div class="text-6xl float">🎓</div><h3 class="text-2xl font-bold mt-2">Exams</h3><p class="text-slate-300">Internals, lab and semester exams from your syllabus.</p></a>
+<a href="{{ url_for('new',track='personal') }}" class="g hv p-7"><div class="text-6xl float" style="animation-delay:.6s">🚀</div><h3 class="text-2xl font-bold mt-2">Personal growth</h3><p class="text-slate-300">Train toward the person you want to become.</p></a></div>
+{% if me.pay_status=='approved' %}<form method="post" action="{{ url_for('checkin') }}" class="g p-5 mt-6"><b>How is your mind today?</b> <span class="text-sm text-slate-300">Your plans adapt to it.</span>
+<div class="flex gap-3 mt-3 flex-wrap">{% for m in ['😫 Stressed','😐 Okay','🙂 Good','🔥 Motivated'] %}<button name="mood" value="{{m}}" class="g hv px-4 py-2">{{m}}</button>{% endfor %}</div></form>{% endif %}
+<h3 class="text-xl font-bold mt-8 mb-3">Your programmes</h3>
+<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-4">{% for c in cs %}<a href="{{ url_for('course',cid=c.id) }}" class="g hv p-4"><div class="text-sm text-cyan-300">{{c.exam}}</div><div class="font-bold">{{c.title}}</div><div class="text-sm text-slate-400">{{c.days}} days</div></a>
+{% else %}<p class="text-slate-400">Nothing yet. Pick a category above to begin.</p>{% endfor %}</div>{% endblock %}

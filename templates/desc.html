@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% block c %}
+<form method="post" action="{{ url_for('submit_desc',cid=c.id) }}" enctype="multipart/form-data" class="space-y-4 mt-4" onsubmit="var b=this.querySelector('button.btn');b.disabled=true;b.textContent='Checking your answers… this can take a minute'">
+<h2 class="text-2xl font-bold glow">✍️ Descriptive test: {{c.title}}</h2>
+<div class="g p-4 border-amber-400 text-sm">✍️ <b>Please write clearly.</b> For handwritten answers use dark ink on plain paper, good light, keep the whole page in the photo, and show every step for maths. If the AI cannot read it, it will ask you to upload again.</div>
+{% for x in qs %}{% set i=loop.index0 %}<div class="g p-4"><div class="text-xs text-cyan-300">{{x.topic}} · {{ '🧮 Maths' if x.kind=='math' else '📖 Theory' }} · 10 marks</div>
+<p class="font-semibold my-2">{{loop.index}}. {{x.q}}</p>
+<textarea class="in" name="t{{i}}" rows="{{ 5 if x.kind=='math' else 6 }}" placeholder="{{ 'Type your working and final answer' if x.kind=='math' else 'Type your answer' }} (or upload handwritten photo below)"></textarea>
+<label class="block text-sm text-slate-300 mt-2">📎 Handwritten answer (photo, up to 3 pages)</label><input class="in" type="file" name="f{{i}}" accept="image/*" multiple></div>{% endfor %}
+<button class="btn w-full md:w-auto">Submit for checking</button></form>{% endblock %}

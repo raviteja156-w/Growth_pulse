@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#060d24">
+<title>{% block t %}GrowthPulse – smart semester prep{% endblock %}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static',filename='app.css') }}"></head>
+<body class="min-h-screen text-slate-100 overflow-x-hidden">
+<div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+<nav class="flex items-center justify-between px-4 md:px-10 py-3 md:py-4 flex-wrap gap-2 max-w-6xl mx-auto">
+<a href="/" class="text-xl md:text-2xl font-bold glow"><span class="spin">💗</span> GrowthPulse</a>
+<div class="navlinks">
+{% if me %}<a href="{{ url_for('dashboard') }}">Dashboard</a><a href="{{ url_for('doubt') }}">Doubts</a><a href="{{ url_for('profile') }}">Profile</a><a href="{{ url_for('logout') }}" class="text-cyan-300">Logout</a>
+{% else %}<a href="{{ url_for('login') }}">Login</a><a class="btn" href="{{ url_for('register') }}">Get started</a>{% endif %}</div></nav>
+<div class="fixed top-3 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md space-y-2">
+{% for c,m in get_flashed_messages(with_categories=true) %}<div class="toast g px-4 py-3 text-sm {{ 'border-emerald-400' if c=='ok' else 'border-rose-400' }}" onclick="this.remove()">{{ '✅' if c=='ok' else '⚠️' }} {{ m }}</div>{% endfor %}</div>
+<main class="px-4 md:px-10 pb-16 max-w-6xl mx-auto">{% block c %}{% endblock %}</main>
+<script>setTimeout(()=>document.querySelectorAll('.toast').forEach(e=>e.remove()),6000)</script></body></html>

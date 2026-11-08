@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block c %}
+<h2 class="text-2xl font-bold glow mt-4">📝 Choose your test: {{c.title}}</h2>
+<div class="grid md:grid-cols-2 gap-5 mt-5">
+<a href="{{ url_for('test_mcq',cid=c.id) }}" class="g hv p-7"><div class="text-5xl float">🔘</div><h3 class="text-xl font-bold mt-2">Multiple choice</h3><p class="text-slate-300 text-sm">10 questions, instant score and topic analysis. AI takes up to a minute to write them.</p></a>
+<a href="{{ url_for('test_desc',cid=c.id,fresh=1) }}" class="g hv p-7"><div class="text-5xl float" style="animation-delay:.6s">✍️</div><h3 class="text-xl font-bold mt-2">Descriptive</h3><p class="text-slate-300 text-sm">5 written questions. Type your answer or upload a photo of your handwritten solution (great for maths). AI checks it and tells you if it is correct.</p></a></div>
+{% if c.dtest and c.dtest!='[]' %}<p class="mt-4 text-sm"><a class="text-cyan-300" href="{{ url_for('test_desc',cid=c.id) }}">Continue my last descriptive test →</a></p>{% endif %}
+<a class="inline-block mt-5 text-sm text-cyan-300" href="{{ url_for('course',cid=c.id) }}">← Back to plan</a>{% endblock %}

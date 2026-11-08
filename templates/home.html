@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% block c %}
+<section class="grid md:grid-cols-2 gap-8 items-center py-8 md:py-16">
+<div><h1 class="text-4xl md:text-6xl font-extrabold glow leading-tight">Study for your semester without the panic.</h1>
+<p class="mt-5 text-slate-300 text-lg">Upload your syllabus, tell us how many days you have, and GrowthPulse builds a day-by-day plan with a lesson for every day, lets you ask doubts (even from handwritten notes), and tests you with MCQ or written answers.</p>
+<div class="mt-7 flex gap-3 flex-wrap"><a class="btn" href="{{ url_for('register') }}">Start free account</a><a class="g px-5 py-2" href="{{ url_for('login') }}">I have an account</a></div></div>
+<svg viewBox="0 0 400 360" class="w-full max-w-md mx-auto" aria-hidden="true"><defs><radialGradient id="r"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#2563eb" stop-opacity=".1"/></radialGradient></defs>
+<circle cx="200" cy="180" r="150" fill="url(#r)" opacity=".35"><animate attributeName="r" values="140;160;140" dur="4s" repeatCount="indefinite"/></circle>
+<g><animateTransform attributeName="transform" type="rotate" from="0 200 180" to="360 200 180" dur="14s" repeatCount="indefinite"/><circle cx="200" cy="30" r="14" fill="#22d3ee"/><circle cx="350" cy="180" r="11" fill="#a78bfa"/><circle cx="200" cy="330" r="14" fill="#38bdf8"/><circle cx="50" cy="180" r="11" fill="#f472b6"/></g>
+<g style="animation:fl 3s ease-in-out infinite"><rect x="120" y="120" width="160" height="110" rx="10" fill="#0f1c42" stroke="#22d3ee" stroke-width="3"/><line x1="200" y1="120" x2="200" y2="230" stroke="#22d3ee" stroke-width="2"/><path d="M135 150h50M135 170h50M135 190h40M215 150h50M215 170h50M215 190h40" stroke="#60a5fa" stroke-width="4" stroke-linecap="round"/><text x="200" y="110" text-anchor="middle" font-size="42">🎓</text></g></svg></section>
+<section class="grid sm:grid-cols-2 md:grid-cols-4 gap-4">
+{% for i,t,d in [('🗓️','Smart day plan','Fits every topic into your days.'),('📖','Day-wise lessons','Open a day, learn it, ask doubts.'),('📊','Mind-set analysis','Finds weak topics and retrains you.'),('✍️','Handwritten check','Upload your handwritten answer for review.')] %}
+<div class="g hv p-5"><div class="text-4xl float">{{i}}</div><h3 class="font-bold mt-2">{{t}}</h3><p class="text-sm text-slate-300">{{d}}</p></div>{% endfor %}</section>
+<p class="text-center text-xs text-slate-400 mt-10">Built with Flask, Tailwind and Groq AI.</p>{% endblock %}
