@@ -1,0 +1,9 @@
+{% macro askbox(action, ctx) %}
+<details class="mt-2"><summary class="text-cyan-300 text-sm cursor-pointer py-2">🙋 Ask AI about this</summary>
+<form method="post" action="{{ action }}" enctype="multipart/form-data" class="mt-2 space-y-2" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Thinking…'">
+<input type="hidden" name="context" value="{{ ctx|truncate(700, True, '') }}">
+<textarea class="in" name="question" rows="2" placeholder="What is not clear? Type your question…"></textarea>
+<label class="block text-xs text-slate-300">📎 or upload your handwritten doubt (photo)</label>
+<input class="in" type="file" name="note" accept="image/*" multiple>
+<button class="btn">Ask AI</button></form></details>
+{% endmacro %}

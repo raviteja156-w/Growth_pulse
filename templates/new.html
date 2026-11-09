@@ -1,10 +1,19 @@
 {% extends "base.html" %}{% block c %}
-<form method="post" enctype="multipart/form-data" class="g p-6 max-w-2xl mx-auto mt-4 space-y-3">
+<form method="post" enctype="multipart/form-data" class="g p-6 max-w-2xl mx-auto mt-4 space-y-3" onsubmit="var b=this.querySelector('button.btn');b.disabled=true;b.textContent='⏳ AI is preparing your plan…'">
 <h2 class="text-2xl font-bold glow">{{ '🎓 New exam plan' if track=='college' else '🚀 New growth plan' }}</h2>
-{% if track=='college' %}<select class="in" name="exam"><option>Semester Exam</option><option>Internal Exam 1</option><option>Internal Exam 2</option><option>Internal Exam 3</option><option>Lab Exam</option></select><input class="in" name="title" placeholder="Subject name" required>{% endif %}
-<label class="block text-sm text-slate-300">{{ 'Upload syllabus (PDF or text file from your computer)' if track=='college' else 'Upload notes or resources (optional)' }}</label>
+{% if track=='college' %}<select class="in" name="exam"><option>Semester Exam</option><option>Internal Exam 1</option><option>Internal Exam 2</option><option>Internal Exam 3</option><option>Lab Exam</option></select><input class="in" name="title" placeholder="Subject name" required>
+<div class="text-sm text-slate-300">What are you uploading?</div>
+<div class="grid sm:grid-cols-2 gap-2">
+<label class="g p-3 cursor-pointer"><input type="radio" name="qmode" value="syllabus" checked onchange="sync()" class="mr-2">📚 <b>Syllabus</b><div class="text-xs text-slate-400 ml-6">Topic-wise learning, day by day</div></label>
+<label class="g p-3 cursor-pointer"><input type="radio" name="qmode" value="questions" onchange="sync()" class="mr-2">⭐ <b>Internal exam important questions</b><div class="text-xs text-slate-400 ml-6">Every question explained as handwritten answer</div></label></div>{% endif %}
+<label id="l1" class="block text-sm text-slate-300">{{ 'Upload your file (PDF or text from your computer)' if track=='college' else 'Upload notes or resources (optional)' }}</label>
 <input class="in" type="file" name="files" multiple accept=".pdf,.txt,.md">
-<label class="block text-sm text-slate-300">{{ 'Specific topics (required for internal and lab exams)' if track=='college' else 'Skills you already know / extra notes' }}</label><textarea class="in" name="topics" rows="3"></textarea>
-{% if track=='college' %}<label class="block text-sm text-slate-300">Previous question papers (optional, repeated topics get priority)</label><input class="in" type="file" name="papers" multiple accept=".pdf,.txt">{% endif %}
+<label id="l2" class="block text-sm text-slate-300">{{ 'Or type specific topics (required for internal and lab exams)' if track=='college' else 'Skills you already know / extra notes' }}</label><textarea id="tp" class="in" name="topics" rows="4"></textarea>
+{% if track=='college' %}<div id="pp"><label class="block text-sm text-slate-300">Previous question papers (optional, repeated topics get priority)</label><input class="in" type="file" name="papers" multiple accept=".pdf,.txt"></div>{% endif %}
 <label class="block text-sm text-slate-300">How many days do you want to train?</label><input class="in" type="number" name="days" min="1" max="120" value="15" required>
-<button class="btn w-full">Build my plan</button><p class="text-xs text-slate-400">The AI may take up to a minute. Please keep this page open.</p></form>{% endblock %}
+<label class="block text-sm text-slate-300">🎯 Any specific question or topic you want explained first? (optional)</label><input class="in" name="firstq" placeholder="e.g. Explain Dijkstra's algorithm with an example">
+<button class="btn w-full">Build my plan</button><p class="text-xs text-slate-400">The AI may take up to a minute. Please keep this page open.</p></form>
+<script>function sync(){var r=document.querySelector('input[name=qmode]:checked');if(!r)return;var q=r.value=='questions';
+document.getElementById('l1').textContent=q?'Upload the important questions file (PDF or text)':'Upload your syllabus (PDF or text from your computer)';
+document.getElementById('l2').textContent=q?'Or type / paste the important questions (one per line)':'Or type specific topics (required for internal and lab exams)';
+document.getElementById('pp').style.display=q?'none':'block'}</script>{% endblock %}

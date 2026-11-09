@@ -57,6 +57,9 @@ SCHEMA = [
  "create table if not exists progress(course_id integer,day integer,primary key(course_id,day))",
  "create table if not exists doubts(id serial primary key,user_id integer,question text,answer text,created timestamp default current_timestamp)",
  "alter table courses add column if not exists research text default ''",
+ "alter table courses add column if not exists qmode text default 'syllabus'",
+ "create table if not exists iq(id serial primary key,course_id integer,n integer,topic text,q text,ans text default '',unique(course_id,n))",
+ "create table if not exists topicx(course_id integer,key text,body text,primary key(course_id,key))",
  "create index if not exists i_courses_user on courses(user_id)",
  "create index if not exists i_chats_cd on chats(course_id,day)",
  "create index if not exists i_results_c on results(course_id)",
@@ -164,18 +167,47 @@ def ink(text):
         cls = "ln"
         if re.match(r"(?i)^(final\s+)?ans(wer)?\s*[:=]", s): cls += " ans"
         elif re.match(r"(?i)^step\s*\d+", s): cls += " stp"
-        elif re.match(r"(?i)^(given|to find|find|formula|solution|check|verify|proof|aim|note)\s*:", s): cls += " hd"
+        elif re.match(r"(?i)^(given|to find|find|formula|solution|check|verify|proof|aim|note|definition|example|diagram|remember|real life|key points|why)\s*:", s): cls += " hd"
         elif s[0] in "=≈": cls += " eq"
         out.append('<div class="%s">%s</div>' % (cls, escape(l.rstrip())))
     return Markup("".join(out))
 def ans_html(msg):
-    """Render a tutor answer. Maths answers (tagged [MATHS]) go on ruled paper, theory stays plain."""
-    m = clean(msg or ""); kind = "theory"
+    """Every tutor answer is shown as handwritten notes on ruled paper."""
+    m = clean(msg or "")
     t = re.match(r"^\[(MATHS?|THEORY)\]\s*", m, re.I)
-    if t: kind = "maths" if t.group(1).upper().startswith("MATH") else "theory"; m = m[t.end():]
-    if kind == "maths": return Markup('<div class="paper">%s</div>' % ink(m))
-    return Markup('<div class="plainans">%s</div>' % escape(m))
-app.add_template_filter(ink, "ink"); app.add_template_filter(ans_html, "ans")
+    if t: m = m[t.end():]
+    return Markup('<div class="paper">%s</div>' % ink(m))
+def pp(text):
+    return Markup('<div class="paper">%s</div>' % ink(text))
+app.add_template_filter(ink, "ink"); app.add_template_filter(ans_html, "ans"); app.add_template_filter(pp, "pp")
+
+NOTE_STYLE = """HANDWRITTEN NOTES STYLE (very important): write exactly like a good teacher writing neat class notes by hand for a student. One short idea per line, every line separated by a newline. Begin with the direct answer or definition in one line. Then explain step by step in very simple words. Always include one small everyday EXAMPLE (start that line with 'Example:'). If useful, describe a tiny diagram in words (start that line with 'Diagram:'). Finish with one line starting 'Remember:' that holds the key points to memorise. Never write long paragraphs."""
+
+def tutor(question, ctx="", doc="", imgs=None):
+    return ai(f"""A student has a doubt. {('The doubt is about this part of their study material: ' + ctx) if ctx else ''}
+Student's doubt: {question or 'Please read my handwritten note and clarify my doubt.'}
+{'A photo of the handwritten note is attached; say what you understood, and if anything is unclear ask the student to write it more clearly.' if imgs else ''}
+Reference material (may be empty):
+{doc[:12000]}
+Explain like a patient teacher to a beginner, with a small everyday example.
+{NOTE_STYLE}
+{STYLE}
+{MATH_STYLE}""", 2500, imgs or None)
+
+def qctx(c):
+    if (c.get("qmode") or "syllabus") != "questions": return ""
+    rows = q("select q from iq where course_id=? order by n", (c["id"],))
+    return "IMPORTANT QUESTIONS given by the student's teacher (base the test on these, they are likely to come in the exam): " + " | ".join(r["q"] for r in rows)[:5000]
+
+def qplan(items, days):
+    """Spread the important questions over the days (max 8 per day)."""
+    nd = max(1, min(days, len(items))); nd = max(nd, -(-len(items) // 8)); size = -(-len(items) // nd)
+    plan = []
+    for i in range(0, len(items), size):
+        part = items[i:i + size]
+        plan.append({"day": len(plan) + 1, "focus": list(dict.fromkeys(x["topic"] for x in part)), "qs": [x["n"] for x in part],
+                     "tip": "Read the model answer, close the book, then write it in your own words."})
+    return plan
 
 VISION = os.getenv("VISION_MODEL", "qwen/qwen3.8-27b")
 _VCACHE = {}
@@ -357,6 +389,7 @@ def new(track):
         flash("Please complete your profile first so AI can train you accordingly.", "err"); return redirect(url_for("profile"))
     if request.method == "POST":
         f = request.form
+        qmode = "questions" if (track == "college" and f.get("qmode") == "questions") else "syllabus"
         exam = f.get("exam", "Semester Exam") if track == "college" else "Personal Growth"
         days = max(1, min(int(f.get("days") or 7), 120))
         src = "\n".join(text_from(x) for x in request.files.getlist("files")) + "\n" + f.get("topics", "")
@@ -364,22 +397,44 @@ def new(track):
         title = f.get("title") or u["goal"]
         if track == "personal": src = f"Profession: {u['profession']}. Wants to become: {u['goal']}. Notes: " + src
         if len(src.strip()) < 15:
-            flash("Please upload a syllabus/notes file or type topics.", "err"); return redirect(request.url)
-        scope = ("Cover EVERY topic of the syllabus across the days, keeping the last day(s) for revision." if exam == "Semester Exam"
-                 else "Use ONLY the topics the student listed." if track == "college" else "Build a skill roadmap from beginner to job-ready.")
-        brief = research(title, exam, src)
-        try:
-            d = aj(f"""Create a study programme. Exam: {exam}. Subject/goal: {title}. Days available: {days}. {scope}
+            flash("Please upload a file or type your " + ("important questions." if qmode == "questions" else "syllabus topics."), "err"); return redirect(request.url)
+        if qmode == "questions":
+            try:
+                items = aj(f"""Below is text from an internal-exam IMPORTANT QUESTIONS list for the subject '{title}' (it may be messy text copied from a PDF). Extract every distinct question, fix obvious typos, keep at most 60. Give each a short topic name (2 to 4 words).
+Text: {src[:12000]}
+Return JSON list: [{{"q":"the question","topic":"topic name"}}]""", 5000)
+                if isinstance(items, dict): items = next((v for v in items.values() if isinstance(v, list)), [])
+                items = [{"n": i + 1, "q": str(x.get("q", "")).strip(), "topic": (str(x.get("topic") or "General").strip()[:60] or "General")}
+                         for i, x in enumerate(items[:60]) if isinstance(x, dict) and str(x.get("q", "")).strip()]
+                if not items: raise ValueError("no questions found in the file")
+            except Exception as e:
+                flash(f"Could not read the questions ({str(e)[:150]}). Try a clearer PDF or type them one per line.", "err"); return redirect(request.url)
+            plan = qplan(items, days); cnt = {}
+            for x in items: cnt[x["topic"]] = cnt.get(x["topic"], 0) + 1
+            topics = [{"name": t, "importance": min(5, 2 + k), "summary": f"{k} important question(s)"} for t, k in cnt.items()]
+            cid = q("insert into courses(user_id,track,title,exam,days,plan,cards,topics,src,research,qmode) values(?,?,?,?,?,?,?,?,?,?,?)",
+                    (u["id"], track, title, exam, len(plan), json.dumps(plan), "[]", json.dumps(topics), src[:12000], "", "questions"), rid=True)
+            for x in items: q("insert into iq(course_id,n,topic,q) values(?,?,?,?)", (cid, x["n"], x["topic"], x["q"]))
+            flash(f"{len(items)} important questions found and planned over {len(plan)} days. Open Day 1 to learn the answers.", "ok")
+        else:
+            scope = ("Cover EVERY topic of the syllabus across the days, keeping the last day(s) for revision." if exam == "Semester Exam"
+                     else "Use ONLY the topics the student listed." if track == "college" else "Build a skill roadmap from beginner to job-ready.")
+            brief = research(title, exam, src)
+            try:
+                d = aj(f"""Create a study programme. Exam: {exam}. Subject/goal: {title}. Days available: {days}. {scope}
 {mind(u['id'])}
 Topics that repeat in previous papers (give higher importance): {papers[:5000] or 'none given'}
 Real-world research from the web (use it to decide which topics are really important): {brief[:3500] or 'not available'}
 Content: {src[:12000]}
 Return JSON: {{"topics":[{{"name":"","importance":1-5,"summary":""}}],"plan":[{{"day":1,"focus":["topic"],"tip":""}}] (exactly {days} days)}}""", 6000)
-        except Exception as e:
-            flash(f"AI could not build the plan ({e}). Check the API key and try again.", "err"); return redirect(request.url)
-        cid = q("insert into courses(user_id,track,title,exam,days,plan,cards,topics,src,research) values(?,?,?,?,?,?,?,?,?,?)",
-                (u["id"], track, title, exam, days, json.dumps(d["plan"]), "[]", json.dumps(d["topics"]), src[:12000], brief), rid=True)
-        flash("Your day-wise plan is ready! Open Day 1 to start learning.", "ok"); return redirect(url_for("course", cid=cid))
+            except Exception as e:
+                flash(f"AI could not build the plan ({e}). Check the API key and try again.", "err"); return redirect(request.url)
+            cid = q("insert into courses(user_id,track,title,exam,days,plan,cards,topics,src,research) values(?,?,?,?,?,?,?,?,?,?)",
+                    (u["id"], track, title, exam, days, json.dumps(d["plan"]), "[]", json.dumps(d["topics"]), src[:12000], brief), rid=True)
+            flash("Your day-wise plan is ready! Open Day 1 to start learning.", "ok")
+        first = f.get("firstq", "").strip()
+        if first: return redirect(url_for("explain", cid=cid, t=first))
+        return redirect(url_for("course", cid=cid))
     return render_template("new.html", track=track)
 
 def get_course(cid):
@@ -394,9 +449,34 @@ def course(cid):
     done = {r["day"] for r in q("select day from progress where course_id=?", (cid,))}
     opened = {r["day"] for r in q("select day from lessons where course_id=?", (cid,))}
     nxt = next((int(d["day"]) for d in plan if int(d["day"]) not in done), None)
-    return render_template("course.html", c=c, plan=plan, topics=json.loads(c["topics"]), st=stats(cid), done=done, opened=opened, nxt=nxt)
+    qmode = c.get("qmode") or "syllabus"
+    qs = q("select n,topic,q from iq where course_id=? order by n", (cid,)) if qmode == "questions" else []
+    qday = {int(n): int(d["day"]) for d in plan for n in d.get("qs", [])}
+    return render_template("course.html", c=c, plan=plan, topics=json.loads(c["topics"]), st=stats(cid), done=done, opened=opened, nxt=nxt, qmode=qmode, qs=qs, qday=qday)
+
+def qlesson(c, d, n):
+    nums = [int(x) for x in d.get("qs", [])]
+    rows = [dict(r) for r in q("select n,topic,q,ans from iq where course_id=? and n = any(?) order by n", (c["id"], nums))]
+    miss = [r for r in rows if not (r["ans"] or "").strip()]
+    if miss:
+        payload = json.dumps([{"n": r["n"], "q": r["q"], "topic": r["topic"]} for r in miss])
+        res = aj(f"""Subject: '{c['title']}' ({c['exam']}). These are IMPORTANT exam questions. Write the full model answer for each one so a student can learn it and write it in the exam.
+Questions: {payload}
+Answer length should suit the marks: a short definition question gets 5 to 7 lines, an explain/discuss question gets 12 to 20 lines, a numerical gets the full worked solution.
+{NOTE_STYLE}
+{STYLE}
+{MATH_STYLE}
+Return JSON list: [{{"n":1,"answer":"the handwritten-style notes, lines separated by newline characters"}}]""", 7000)
+        if isinstance(res, dict): res = next((v for v in res.values() if isinstance(v, list)), [])
+        got = {int(x["n"]): str(x["answer"]) for x in res if isinstance(x, dict) and x.get("n") is not None and x.get("answer")}
+        for r in miss:
+            if r["n"] in got:
+                q("update iq set ans=? where course_id=? and n=?", (got[r["n"]], c["id"], r["n"])); r["ans"] = got[r["n"]]
+    if any(not (r["ans"] or "").strip() for r in rows): raise RuntimeError("AI returned incomplete answers")
+    return {"title": f"Important questions · Day {n}", "intro": "These questions are likely to come in your exam. Read each model answer, understand the idea, then close the book and write it in your own words. Tap Ask AI under any answer if something is not clear.", "questions": rows}
 
 def lesson_for(c, d, n):
+    if (c.get("qmode") or "syllabus") == "questions": return qlesson(c, d, n)
     row = q("select body from lessons where course_id=? and day=?", (c["id"], n), one=True)
     if row: return json.loads(row["body"])
     topics = json.loads(c["topics"]); focus = ", ".join(d.get("focus", []))
@@ -414,9 +494,10 @@ The student may be a COMPLETE BEGINNER who knows nothing about this topic and is
 - For every section give one worked EXAMPLE with small, friendly numbers or a real situation. For maths or numbers set "math":true and write the example in notebook style.
 - Tell one COMMON MISTAKE beginners make in that section.
 {STYLE}
+{NOTE_STYLE}
 {MATH_STYLE}
 
-Return JSON: {{"title":"","math":true or false (true if today's topic needs calculations),"intro":"3-5 simple sentences: what we learn today and why it matters","words":[{{"term":"","meaning":"one simple line"}}] (3 to 6 key words),"sections":[{{"h":"","body":"clear step-by-step explanation in simple language","analogy":"everyday comparison","example":"worked example","math":true or false,"mistake":"common beginner mistake and how to avoid it"}}] (4 to 6 sections),"recap":["",""] (4 to 6 simple points),"practice":[{{"q":"a question to try","answer":"full solution written step by step"}}] (3 questions, easy to medium)}}""", 7000)
+Return JSON: {{"title":"","math":true or false (true if today's topic needs calculations),"intro":"3-5 simple sentences: what we learn today and why it matters","words":[{{"term":"","meaning":"one simple line"}}] (3 to 6 key words),"sections":[{{"h":"","body":"explanation written as handwritten class notes: one short idea per line, lines separated by newline characters","analogy":"everyday comparison","example":"worked example, one step per line","math":true or false,"mistake":"common beginner mistake and how to avoid it"}}] (4 to 6 sections),"recap":["",""] (4 to 6 simple points),"practice":[{{"q":"a question to try","answer":"full solution written step by step"}}] (3 questions, easy to medium)}}""", 7000)
     q("insert into lessons(course_id,day,body) values(?,?,?) on conflict(course_id,day) do update set body=excluded.body", (c["id"], n, json.dumps(L)))
     return L
 
@@ -439,7 +520,9 @@ def day(cid, n):
 @app.route("/course/<int:cid>/day/<int:n>/refresh", methods=["POST"])
 @paid
 def day_refresh(cid, n):
-    c = get_course(cid); day_plan(c, n)
+    c = get_course(cid); d = day_plan(c, n)
+    if (c.get("qmode") or "syllabus") == "questions":
+        q("update iq set ans='' where course_id=? and n = any(?)", (cid, [int(x) for x in d.get("qs", [])]))
     q("delete from lessons where course_id=? and day=?", (cid, n))
     flash("Writing a fresh, simpler explanation for you…", "ok"); return redirect(url_for("day", cid=cid, n=n))
 
@@ -447,11 +530,12 @@ def day_refresh(cid, n):
 @paid
 def ask(cid, n):
     c = get_course(cid); d = day_plan(c, n)
-    question = request.form.get("question", "").strip()
+    question = request.form.get("question", "").strip(); ctx = request.form.get("context", "").strip()[:1500]
+    back = url_for("day", cid=cid, n=n) + "#chat"
     imgs, err = images_from(request.files.getlist("note"))
-    if err: flash(err, "err"); return redirect(url_for("day", cid=cid, n=n) + "#chat")
+    if err: flash(err, "err"); return redirect(back)
     if not question and not imgs:
-        flash("Type your doubt or upload a photo of your handwritten note.", "err"); return redirect(url_for("day", cid=cid, n=n) + "#chat")
+        flash("Type your doubt or upload a photo of your handwritten note.", "err"); return redirect(back)
     L = lesson_for(c, d, n)
     hist = q("select role,msg from chats where course_id=? and day=? order by id desc limit 6", (cid, n))[::-1]
     convo = "\n".join(f"{'Student' if h['role'] == 'user' else 'Tutor'}: {h['msg']}" for h in hist)
@@ -460,18 +544,21 @@ def ask(cid, n):
 Earlier chat:
 {convo or '(none)'}
 {mind(c['user_id'], cid)}
+{('The student is asking about this exact part: ' + ctx) if ctx else ''}
 Student's doubt: {question or 'Please read my handwritten note and clarify my doubt.'}
 {'The student attached a photo of their handwritten note. Read it carefully, say what you understood, and if a word or line is unclear, ask them to write it more clearly.' if imgs else ''}
 Explain like a patient teacher to a beginner: simple words, a small everyday example, tied to today's topic.
+{NOTE_STYLE}
 {STYLE}
-{MATH_STYLE}
-Start your reply with [MATHS] on its own first line if the doubt needs solving or calculating, otherwise start with [THEORY]."""
+{MATH_STYLE}"""
     try: a = ai(prompt, 2500, imgs or None)
     except Exception as e:
-        flash(f"AI error ({str(e)[:120]}).", "err"); return redirect(url_for("day", cid=cid, n=n) + "#chat")
-    q("insert into chats(course_id,day,role,msg) values(?,?,?,?)", (cid, n, "user", (question or "Please check my handwritten note.") + (" 📎 [handwritten note attached]" if imgs else "")))
+        flash(f"AI error ({str(e)[:120]}).", "err"); return redirect(back)
+    tag = ("📌 " + ctx[:70].replace("\n", " ") + "…\n") if ctx else ""
+    q("insert into chats(course_id,day,role,msg) values(?,?,?,?)", (cid, n, "user", tag + (question or "Please check my handwritten note.") + (" 📎 [handwritten note attached]" if imgs else "")))
     q("insert into chats(course_id,day,role,msg) values(?,?,?,?)", (cid, n, "ai", a))
-    return redirect(url_for("day", cid=cid, n=n) + "#chat")
+    flash("Answer added below in the Doubts section.", "ok")
+    return redirect(back)
 
 @app.route("/course/<int:cid>/day/<int:n>/done", methods=["POST"])
 @paid
@@ -495,6 +582,7 @@ def test_mcq(cid):
     try:
         t = aj(f"""Write 10 multiple-choice questions for '{c['title']}' ({c['exam']}). Topics: {c['topics'][:5000]}.
 Questions that are frequently asked in real exams (found online, use these as a guide for style and difficulty): {(c['research'] or '')[:2500] or 'none'}
+{qctx(c)}
 {mind(session['uid'], cid)} Ask more questions on weak topics and on high-importance topics.
 {STYLE}
 Return JSON list: [{{"topic":"","q":"","options":["","","",""],"answer":0-3,"why":"short, simple explanation; for maths show the working line by line"}}]""")
@@ -511,6 +599,8 @@ def test_desc(cid):
         try:
             qs = aj(f"""Write 5 descriptive (written-answer) questions for '{c['title']}' ({c['exam']}). Topics: {c['topics'][:5000]}.
 Questions that are frequently asked in real exams (found online, use these as a guide for style and difficulty): {(c['research'] or '')[:2500] or 'none'}
+{qctx(c)}
+If important questions are given above, use five of them (weak topics first) as the questions.
 {mind(session['uid'], cid)} Ask more on weak and high-importance topics.
 If the subject is mathematical or numerical, write problems to solve step by step and set "kind":"math"; otherwise "kind":"theory".
 Return JSON list: [{{"topic":"","kind":"math or theory","q":"","key_points":["",""],"model_answer":""}}] (key_points and model_answer are for grading only)""", 5000)
@@ -597,6 +687,12 @@ def analysis(cid):
 @paid
 def retrain(cid):
     c = get_course(cid)
+    if (c.get("qmode") or "syllabus") == "questions":
+        weak = [t for t, p in stats(cid) if p < 70]
+        rows = sorted(q("select n,topic from iq where course_id=? order by n", (cid,)), key=lambda r: (r["topic"] not in weak, r["n"]))
+        plan = qplan(rows, c["days"])
+        q("update courses set plan=?, days=? where id=?", (json.dumps(plan), len(plan), cid))
+        flash("Questions re-ordered: your weak topics now come first.", "ok"); return redirect(url_for("course", cid=cid))
     try:
         d = aj(f"""Re-plan the remaining study for '{c['title']}' over {c['days']} days. Topics: {c['topics'][:4000]}.
 {mind(session['uid'], cid)} Give weak topics more days and revision. Return JSON: {{"plan":[{{"day":1,"focus":["topic"],"tip":""}}]}}""")
@@ -616,20 +712,53 @@ def doubt():
         elif not question and not imgs: flash("Type your doubt or upload a photo of your handwritten note.", "err")
         else:
             try:
-                ans = ai(f"""A student has a doubt. Student's doubt: {question or 'Please read my handwritten note and clarify my doubt.'}
-{'A photo of the handwritten note is attached; say what you understood, and if anything is unclear ask the student to write it more clearly.' if imgs else ''}
-Reference material (may be empty):
-{doc[:12000]}
-Explain like a patient teacher to a beginner: simple words and a small everyday example.
-{STYLE}
-{MATH_STYLE}
-Start your reply with [MATHS] on its own first line if the doubt needs solving or calculating, otherwise start with [THEORY].""", 2500, imgs or None)
+                ans = tutor(question, doc=doc, imgs=imgs)
                 q("insert into doubts(user_id,question,answer) values(?,?,?)",
                   (u["id"], (question or "Handwritten note") + (" 📎" if imgs else ""), ans))
                 return redirect(url_for("doubt") + "#answers")
             except Exception as e: flash(f"AI error ({str(e)[:150]}).", "err")
     hist = q("select question,answer,created from doubts where user_id=? order by id desc limit 15", (u["id"],))
     return render_template("doubt.html", hist=hist, question=question)
+
+@app.route("/ask-ai", methods=["POST"])
+@paid
+def ask_ai():
+    """'Ask AI' button under any explanation, question or test result."""
+    u = me(); ctx = request.form.get("context", "").strip()[:1500]; question = request.form.get("question", "").strip()
+    back = request.referrer or url_for("doubt")
+    imgs, err = images_from(request.files.getlist("note"))
+    if err: flash(err, "err"); return redirect(back)
+    if not question and not imgs:
+        flash("Type your question or upload a photo of your handwritten note.", "err"); return redirect(back)
+    try: ans = tutor(question, ctx=ctx, imgs=imgs)
+    except Exception as e:
+        flash(f"AI error ({str(e)[:150]}).", "err"); return redirect(back)
+    tag = ("📌 " + ctx[:90].replace("\n", " ") + "… → ") if ctx else ""
+    q("insert into doubts(user_id,question,answer) values(?,?,?)", (u["id"], tag + (question or "Handwritten note") + (" 📎" if imgs else ""), ans))
+    flash("Your answer is ready. It is saved here in Doubts.", "ok")
+    return redirect(url_for("doubt") + "#answers")
+
+@app.route("/course/<int:cid>/explain")
+@paid
+def explain(cid):
+    """Explain any specific topic or question in handwritten notes (cached)."""
+    c = get_course(cid); t = request.args.get("t", "").strip()[:300]
+    if not t: return redirect(url_for("course", cid=cid))
+    key = t.lower(); row = q("select body from topicx where course_id=? and key=?", (cid, key), one=True)
+    if row and not request.args.get("fresh"): body = row["body"]
+    else:
+        try:
+            body = ai(f"""Teach this to a student preparing for '{c['title']}' ({c['exam']}): "{t}".
+Source material from the student (may be empty): {(c['src'] or '')[:5000]}
+{mind(c['user_id'], cid)}
+If it is a question, write the complete model answer the student can learn and write in the exam. If it is a topic, teach it from zero.
+{NOTE_STYLE}
+{STYLE}
+{MATH_STYLE}""", 3000)
+        except Exception as e:
+            flash(f"Could not explain this right now ({str(e)[:120]}). Please try again.", "err"); return redirect(url_for("course", cid=cid))
+        q("insert into topicx(course_id,key,body) values(?,?,?) on conflict(course_id,key) do update set body=excluded.body", (cid, key, body))
+    return render_template("explain.html", c=c, t=t, body=body)
 
 # ---- hidden admin: no link anywhere in the app; open /adminlogin directly ----
 @app.route("/adminlogin", methods=["GET", "POST"])
