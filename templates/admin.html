@@ -9,6 +9,15 @@
 <div class="g p-4"><div class="mini text-amber-300">⏳ Pending payments</div><div class="text-3xl font-bold">{{ pend_n }}</div></div>
 <div class="g p-4"><div class="mini text-rose-300">🚫 Suspended</div><div class="text-3xl font-bold">{{ st.susp }}</div></div></div>
 
+<h3 id="settings" class="text-xl font-bold mt-8 mb-2">💳 Payment settings</h3>
+<form method="post" action="{{ url_for('admin_settings') }}" enctype="multipart/form-data" class="g p-4 md:p-5 grid md:grid-cols-2 gap-4">
+<div class="space-y-3"><div><label class="text-sm text-slate-300">Name shown to users (PhonePe / account name)</label><input class="in" name="name" value="{{ cfg.name }}" placeholder="e.g. Raviteja" maxlength="80"></div>
+<div><label class="text-sm text-slate-300">PhonePe / phone number</label><input class="in" name="phone" value="{{ cfg.phone }}" placeholder="e.g. 98xxxxxx10" maxlength="40" inputmode="tel"></div>
+<div><label class="text-sm text-slate-300">UPI ID (optional)</label><input class="in" name="upi" value="{{ cfg.upi }}" placeholder="e.g. name@ybl" maxlength="80"></div></div>
+<div class="space-y-3"><label class="text-sm text-slate-300">Payment QR image (PNG or JPG)</label><input class="in" type="file" name="qr" accept="image/*">
+{% if cfg.has_qr %}<div class="text-sm text-emerald-300">✓ Current QR (upload a new one to replace it):</div><img src="{{ url_for('pay_qr') }}?v={{ range(1,99999)|random }}" class="w-40 rounded-xl bg-white p-2" alt="current QR">{% else %}<div class="text-sm text-amber-300">No QR uploaded yet. Users see a placeholder.</div>{% endif %}</div>
+<div class="md:col-span-2"><button class="btn w-full md:w-auto">Save payment settings</button></div></form>
+
 <h3 class="text-xl font-bold mt-8 mb-2">Payments to approve</h3>
 <div class="grid md:grid-cols-2 gap-4">{% for p in ps if p.status=='pending' %}<div class="g p-4 border-amber-400"><b>{{p.name}}</b> · {{p.email}} · {{p.phone}}<div class="text-sm text-slate-400">{{ p.created.strftime('%d %b %Y, %I:%M %p') }}</div>
 {% if p.has_img %}<a href="{{ url_for('shot',pid=p.id) }}" target="_blank"><img src="{{ url_for('shot',pid=p.id) }}" class="my-2 max-h-72 rounded" alt="payment screenshot"></a>{% else %}<p class="my-2 text-sm text-slate-400">Screenshot was auto-deleted (older than 7 days). Ask the user to upload again.</p>{% endif %}
@@ -16,7 +25,8 @@
 {% else %}<p class="text-slate-400">No pending payments.</p>{% endfor %}</div>
 
 <h3 id="users" class="text-xl font-bold mt-8 mb-2">All users</h3>
-<div class="g p-2 overflow-x-auto"><table class="w-full text-sm min-w-[720px]"><thead class="text-slate-400 text-left"><tr><th class="p-2">Name</th><th class="p-2">Contact</th><th class="p-2">Status</th><th class="p-2">Last seen</th><th class="p-2">Control</th></tr></thead><tbody>
+<input class="in mb-2" placeholder="🔎 Search a user by name, email or phone…" oninput="var v=this.value.toLowerCase();document.querySelectorAll('#ut tbody tr').forEach(function(r){r.style.display=r.textContent.toLowerCase().includes(v)?'':'none'})">
+<div class="g p-2 overflow-x-auto"><table id="ut" class="w-full text-sm min-w-[720px]"><thead class="text-slate-400 text-left"><tr><th class="p-2">Name</th><th class="p-2">Contact</th><th class="p-2">Status</th><th class="p-2">Last seen</th><th class="p-2">Control</th></tr></thead><tbody>
 {% for u in users %}<tr class="border-t border-slate-700/60 align-top"><td class="p-2"><span class="{{ 'text-emerald-400' if u.online else 'text-slate-600' }}">●</span> <b>{{ u.name }}</b></td>
 <td class="p-2">{{ u.email }}<div class="text-xs text-slate-400">{{ u.phone }}</div></td>
 <td class="p-2">{% if u.suspended %}🚫 Suspended{% elif u.pay_status=='approved' and u.access=='free' %}🎁 Free access{% elif u.pay_status=='approved' %}✅ Paid{% elif u.pay_status=='pending' %}⏳ Pending{% elif u.pay_status=='rejected' %}❌ Rejected{% else %}🔒 Locked{% endif %}</td>

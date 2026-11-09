@@ -65,6 +65,7 @@ SCHEMA = [
  "alter table payments add column if not exists decided timestamp",
  "update payments set decided=created where decided is null and status<>'pending'",
  "update users set access='paid' where pay_status='approved' and (access is null or access='')",
+ "create table if not exists settings(key text primary key,val text default '',img bytea,mime text default 'image/png')",
  "create table if not exists topicx(course_id integer,key text,body text,primary key(course_id,key))",
  "create index if not exists i_courses_user on courses(user_id)",
  "create index if not exists i_chats_cd on chats(course_id,day)",
@@ -315,7 +316,7 @@ def mind(uid, cid=None):
     return s
 
 PRICE = int(os.getenv("PRICE", "50"))
-OPEN_EP = {"static", "welcome", "demo_done", "adminlogin", "adminlogout", "admin", "admin_act", "admin_user", "shot"}
+OPEN_EP = {"static", "welcome", "demo_done", "adminlogin", "adminlogout", "admin", "admin_act", "admin_user", "admin_settings", "shot"}
 _last_purge = [0.0]
 
 def purge():
@@ -401,6 +402,21 @@ def shot_bytes(fs):
     except Exception:
         return raw, (mimetypes.guess_type(fs.filename)[0] or "image/jpeg")
 
+def pay_cfg():
+    """Payment details the admin typed in (QR image, PhonePe/UPI number, account name)."""
+    try:
+        rows = q("select key,val,(img is not null) as has_img from settings")
+        d = {r["key"]: r["val"] or "" for r in rows}
+        return {"name": d.get("pay_name", ""), "phone": d.get("pay_phone", ""), "upi": d.get("pay_upi", ""),
+                "has_qr": any(r["key"] == "qr" and r["has_img"] for r in rows)}
+    except Exception: return {"name": "", "phone": "", "upi": "", "has_qr": False}
+
+@app.route("/pay-qr")
+def pay_qr():
+    r = q("select img,mime from settings where key='qr'", one=True)
+    if not r or r["img"] is None: abort(404)
+    return Response(bytes(r["img"]), mimetype=r["mime"] or "image/png", headers={"Cache-Control": "no-cache"})
+
 @app.route("/pay", methods=["GET", "POST"])
 def pay():
     u = me()
@@ -413,7 +429,7 @@ def pay():
         q("insert into payments(user_id,img,mime) values(?,?,?)", (u["id"], psycopg2.Binary(data), mime))
         q("update users set pay_status='pending' where id=?", (u["id"],))
         flash("Screenshot received! Admin will verify and unlock your account soon.", "ok"); return redirect(url_for("pay"))
-    return render_template("pay.html")
+    return render_template("pay.html", cfg=pay_cfg())
 
 @app.route("/profile", methods=["GET", "POST"])
 def profile():
@@ -826,7 +842,7 @@ def admin():
                  coalesce(last_seen > localtimestamp - interval '10 minutes', false) as online from users order by last_seen desc nulls last, id desc""")
     ps = q("""select p.id,p.status,p.created,p.decided,(p.img is not null) as has_img,u.name,u.email,u.phone
               from payments p join users u on u.id=p.user_id order by p.id desc limit 100""")
-    return render_template("admin.html", ps=ps, users=users, st=st, money=paid_n * PRICE, paid_n=paid_n, pend_n=pend_n, price=PRICE)
+    return render_template("admin.html", cfg=pay_cfg(), ps=ps, users=users, st=st, money=paid_n * PRICE, paid_n=paid_n, pend_n=pend_n, price=PRICE)
 
 @app.route("/admin/<int:pid>/<act>", methods=["POST"])
 def admin_act(pid, act):
@@ -848,6 +864,24 @@ def admin_user(uid, act):
         q("update users set " + sql + " where id=?", (uid,))
         flash({"suspend": "User suspended.", "unsuspend": "User un-suspended.", "grant": "Free access given.", "revoke": "Access removed."}[act], "ok")
     return redirect(url_for("admin") + "#users")
+
+@app.route("/admin/settings", methods=["POST"])
+def admin_settings():
+    if not session.get("admin"): abort(403)
+    f = request.form
+    for k, col in (("pay_name", "name"), ("pay_phone", "phone"), ("pay_upi", "upi")):
+        q("insert into settings(key,val) values(?,?) on conflict(key) do update set val=excluded.val", (k, f.get(col, "").strip()[:80]))
+    fs = request.files.get("qr")
+    if fs and fs.filename:
+        try:
+            from PIL import Image, ImageOps
+            im = ImageOps.exif_transpose(Image.open(fs.stream)).convert("RGB"); im.thumbnail((900, 900))
+            b = io.BytesIO(); im.save(b, "PNG", optimize=True)
+            q("insert into settings(key,img,mime) values('qr',?,'image/png') on conflict(key) do update set img=excluded.img, mime=excluded.mime", (psycopg2.Binary(b.getvalue()),))
+        except Exception:
+            flash("Could not read that QR image. Please upload a PNG or JPG.", "err"); return redirect(url_for("admin") + "#settings")
+    flash("Payment settings saved. Users will see them on the payment page now.", "ok")
+    return redirect(url_for("admin") + "#settings")
 
 @app.route("/adminlogout")
 def adminlogout():

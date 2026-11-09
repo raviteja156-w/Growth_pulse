@@ -3,7 +3,12 @@
 {% if me.pay_status=='approved' %}<div class="text-6xl float">🎉</div><h2 class="text-2xl font-bold glow">Payment approved</h2><p class="text-slate-300 my-3">All features are unlocked.</p><a class="btn" href="{{ url_for('dashboard') }}">Go to dashboard</a>
 {% else %}<h2 class="text-2xl font-bold glow">Unlock all features for ₹50</h2>
 <ol class="text-left text-sm text-slate-300 my-3 list-decimal pl-6"><li>Scan the QR below and pay ₹50.</li><li>Upload the payment screenshot.</li><li>Admin approves it and your account unlocks.</li></ol>
-<img src="{{ url_for('static',filename='qr.png') }}" onerror="this.onerror=null;this.src='{{ url_for('static',filename='qr.svg') }}'" class="w-56 mx-auto rounded-xl bg-white p-2" alt="Payment QR">
+<img src="{{ url_for('pay_qr') if cfg.has_qr else url_for('static',filename='qr.png') }}" onerror="this.onerror=null;this.src='{{ url_for('static',filename='qr.svg') }}'" class="w-56 mx-auto rounded-xl bg-white p-2" alt="Payment QR">
+{% if cfg.name or cfg.phone or cfg.upi %}<div class="g p-3 mt-3 text-left text-sm space-y-1">
+{% if cfg.name %}<div>👤 Pay to: <b>{{ cfg.name }}</b></div>{% endif %}
+{% if cfg.phone %}<div>📱 PhonePe number: <b>{{ cfg.phone }}</b> <button type="button" class="text-cyan-300 underline ml-1" onclick="navigator.clipboard&&navigator.clipboard.writeText('{{ cfg.phone|e }}');this.textContent='Copied ✓'">Copy</button></div>{% endif %}
+{% if cfg.upi %}<div>🏷️ UPI ID: <b>{{ cfg.upi }}</b> <button type="button" class="text-cyan-300 underline ml-1" onclick="navigator.clipboard&&navigator.clipboard.writeText('{{ cfg.upi|e }}');this.textContent='Copied ✓'">Copy</button></div>{% endif %}
+<div class="text-amber-300">Amount: ₹50</div></div>{% endif %}
 {% if me.pay_status=='pending' %}<p class="mt-4 text-amber-300">⏳ Screenshot received. Waiting for admin approval.</p>{% elif me.pay_status=='rejected' %}<p class="mt-4 text-rose-300">❌ Previous payment was rejected. Please upload again.</p>{% endif %}
 <p class="text-xs text-slate-400 mt-3">🔒 Your screenshot is used only to verify payment and is deleted automatically 24 hours after the admin decides.</p>
 <form method="post" enctype="multipart/form-data" class="mt-4 space-y-3"><input class="in" type="file" name="shot" accept="image/*" required><button class="btn w-full">Submit screenshot</button></form>{% endif %}</div>{% endblock %}
