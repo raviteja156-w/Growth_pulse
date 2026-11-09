@@ -177,13 +177,27 @@ def ans_html(msg):
     return Markup('<div class="plainans">%s</div>' % escape(m))
 app.add_template_filter(ink, "ink"); app.add_template_filter(ans_html, "ans")
 
-VISION = os.getenv("VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+VISION = os.getenv("VISION_MODEL", "qwen/qwen3.8-27b")
+_VCACHE = {}
+def vision_models(k):
+    """Vision models to try: your VISION_MODEL, known current ones, then anything live on your Groq account that looks vision-capable."""
+    if "v" in _VCACHE: return _VCACHE["v"]
+    out = []
+    for m in (os.getenv("VISION_MODEL"), "qwen/qwen3.8-27b", "qwen/qwen3.6-27b", "meta-llama/llama-4-maverick-17b-128e-instruct"):
+        if m and m not in out: out.append(m)
+    try:
+        r = requests.get("https://api.groq.com/openai/v1/models", headers={"Authorization": "Bearer " + k}, timeout=15)
+        live = [x["id"] for x in r.json().get("data", [])] if r.ok else []
+        if live:
+            out = [m for m in out if m in live] + [m for m in live if re.search(r"qwen3\.\d|llama-4|vision|vl", m) and m not in out and "scout" not in m]
+    except Exception as e: print("model list error", str(e)[:100])
+    _VCACHE["v"] = out or ["qwen/qwen3.8-27b"]; return _VCACHE["v"]
 
 def ai(prompt, tokens=6000, images=None, clean_out=True):
     k = os.getenv("GROQ_API_KEY")
     if not k: raise RuntimeError("GROQ_API_KEY not set")
     if images:   # handwritten photos -> vision model
-        models = [VISION]
+        models = vision_models(k)
         content = [{"type": "text", "text": prompt}] + [{"type": "image_url", "image_url": {"url": u}} for u in images]
     else:
         models = []; content = prompt
@@ -191,14 +205,14 @@ def ai(prompt, tokens=6000, images=None, clean_out=True):
             if m and m not in models: models.append(m)
     err = ""
     for m in models:
-        body = {"model": m, "max_tokens": tokens if images else tokens + 4000, "temperature": 0.3 if images else 0.4,
+        body = {"model": m, "max_tokens": tokens + 4000, "temperature": 0.3 if images else 0.4,
                 "messages": [{"role": "system", "content": "You are a warm, expert tutor and coach. When JSON is requested reply with valid JSON only, no markdown fences."},
                              {"role": "user", "content": content}]}
         if "gpt-oss" in m: body["reasoning_effort"] = "low"
         r = requests.post("https://api.groq.com/openai/v1/chat/completions",
                           headers={"Authorization": "Bearer " + k, "Content-Type": "application/json"}, json=body, timeout=140)
         if r.ok:
-            o = r.json()["choices"][0]["message"]["content"]
+            o = re.sub(r"<think>.*?</think>", "", r.json()["choices"][0]["message"]["content"] or "", flags=re.S).strip()
             return clean(o) if clean_out else o
         err = f"{m}: {r.status_code} {r.text[:200]}"
         if r.status_code not in (400, 404, 429, 503): break
