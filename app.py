@@ -316,7 +316,7 @@ def mind(uid, cid=None):
     return s
 
 PRICE = int(os.getenv("PRICE", "50"))
-OPEN_EP = {"static", "welcome", "demo_done", "adminlogin", "adminlogout", "admin", "admin_act", "admin_user", "admin_settings", "shot"}
+OPEN_EP = {"static", "welcome", "demo_done", "adminlogin", "adminlogout", "admin", "admin_act", "admin_user", "admin_settings", "shot", "bot"}
 _last_purge = [0.0]
 
 def purge():
@@ -349,6 +349,34 @@ def welcome():
 @app.route("/demo-done", methods=["POST"])
 def demo_done():
     r = jsonify(ok=True); r.set_cookie("gp_demo", "1", max_age=31536000, httponly=True, samesite="Lax", secure=request.is_secure); return r
+
+
+BOT_SYS = """You are the GrowthPulse assistant inside a study app for students in India. GrowthPulse: upload a syllabus or important questions, pick days, get a day-by-day plan with handwritten-style lessons, ask doubts (type or handwritten photo), take MCQ or descriptive tests, see mind-set analysis and retrain weak topics. Features unlock with a one-time Rs 50 payment approved by the admin. Answer ONLY what the student asked, in simple short lines (max 120 words), plain text, no markdown, no tables. Use the page content given to be specific. If you are not sure, say so and suggest the Doubts page. Never invent features, prices or links."""
+_bot_hits = {}
+@app.route("/bot", methods=["POST"])
+def bot():
+    j = request.get_json(silent=True) or {}
+    qn = str(j.get("q", "")).strip()[:500]
+    if not qn: return jsonify(answer="Please type a question."), 400
+    key = session.get("uid") or request.remote_addr; now = time.time()
+    hits = [t for t in _bot_hits.get(key, []) if now - t < 60]
+    if len(hits) >= 12: return jsonify(answer="You are asking very fast. Please wait a minute and try again."), 429
+    hits.append(now); _bot_hits[key] = hits
+    hist = "\n".join(f"{'Student' if h.get('r') == 'user' else 'Assistant'}: {str(h.get('m', ''))[:400]}" for h in (j.get("hist") or [])[-6:] if isinstance(h, dict))
+    u = me()
+    prompt = f"""{BOT_SYS}
+Student is {'logged in (' + ('fees paid' if u['pay_status'] == 'approved' else 'features locked until payment') + ')' if u else 'not logged in'}.
+Current page: {str(j.get('title', ''))[:100]} ({str(j.get('path', ''))[:100]})
+Page content (may be partial): {str(j.get('page', ''))[:1200]}
+Chat so far:
+{hist or '(none)'}
+Student: {qn}
+Assistant:"""
+    try: a = ai(prompt, 700)
+    except Exception as e:
+        print("bot error", str(e)[:150])
+        a = "Sorry, I could not reach the AI just now. Please try again in a moment. For study doubts you can also use the Doubts page."
+    return jsonify(answer=a[:1500])
 
 @app.route("/")
 def home(): return render_template("home.html")

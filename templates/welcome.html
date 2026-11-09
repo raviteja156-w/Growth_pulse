@@ -7,12 +7,15 @@
 <h1 class="text-2xl md:text-4xl font-extrabold glow mt-4">{{ 'Product demo' if seen else 'Watch this 1-minute demo to get started' }}</h1>
 <p class="text-slate-300 mt-2 text-sm md:text-base">See how GrowthPulse plans your semester, teaches in handwritten notes, tests you and fixes your weak topics.</p>
 <div class="g p-2 md:p-3 mt-5"><video id="v" class="w-full rounded-xl bg-black" controls controlsList="nodownload noplaybackrate" disablePictureInPicture playsinline autoplay muted preload="auto" poster="{{ url_for('static',filename='demo-poster.jpg') }}"><source src="{{ url_for('static',filename='demo.mp4') }}" type="video/mp4">Your browser cannot play this video.</video></div>
-<p id="msg" class="text-sm text-amber-300 mt-3">{{ 'You have already watched it. You can continue any time.' if seen else '▶ Please watch the whole video. The app opens when it ends.' }}</p>
-<a id="go" href="{{ url_for('home') }}" class="btn mt-3 {{ '' if seen else 'opacity-40 pointer-events-none' }}">Continue to GrowthPulse →</a>
+<button id="um" type="button" class="g px-4 py-2 text-sm mt-3">🔊 Tap to turn sound on</button>
+<p id="msg" class="text-sm text-amber-300 mt-3">{{ 'You have already watched the demo, so you can skip it or replay it freely.' if seen else '▶ Please watch the whole video. The app opens when it ends.' }}</p>
+<div class="flex gap-3 justify-center flex-wrap mt-3"><a id="go" href="{{ url_for('home') }}" class="btn {{ '' if seen else 'opacity-40 pointer-events-none' }}">{{ 'Skip demo →' if seen else 'Continue to GrowthPulse →' }}</a></div>
 </main>
+<script src="{{ url_for('static',filename='sound.js') }}"></script>
 <script>
 var v=document.getElementById('v'),go=document.getElementById('go'),msg=document.getElementById('msg'),max=0,seen={{ 'true' if seen else 'false' }};
+var um=document.getElementById('um');um.onclick=function(){v.muted=false;v.volume=1;v.play();um.remove()};v.addEventListener('volumechange',function(){if(!v.muted&&document.getElementById('um'))document.getElementById('um').remove()});
 v.addEventListener('timeupdate',function(){if(!v.seeking&&v.currentTime>max)max=v.currentTime});
 v.addEventListener('seeking',function(){if(!seen&&v.currentTime>max+.6)v.currentTime=max});
-v.addEventListener('ended',function(){fetch('{{ url_for("demo_done") }}',{method:'POST'}).then(function(){seen=true;go.classList.remove('opacity-40','pointer-events-none');msg.textContent='✅ Thanks for watching! You can start now.';msg.className='text-sm text-emerald-300 mt-3';go.focus()}).catch(function(){msg.textContent='Could not save progress. Please check your internet and play again.'})});
-</script></body></html>
+v.addEventListener('ended',function(){fetch('{{ url_for("demo_done") }}',{method:'POST'}).then(function(){seen=true;go.classList.remove('opacity-40','pointer-events-none');go.textContent='Continue to GrowthPulse →';msg.textContent='✅ Thanks for watching! You can start now.';msg.className='text-sm text-emerald-300 mt-3';if(window.GPSound)GPSound.play('done');go.focus()}).catch(function(){msg.textContent='Could not save progress. Please check your internet and play again.'})});
+</script>{% include "_bot.html" %}</body></html>

@@ -8,8 +8,7 @@
 <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
 <nav class="flex items-center justify-between px-4 md:px-10 py-3 md:py-4 flex-wrap gap-2 max-w-6xl mx-auto">
 <a href="/" class="text-xl md:text-2xl font-bold glow"><span class="spin">💗</span> GrowthPulse</a>
-<div class="navlinks">
-{% if me %}<a href="{{ url_for('dashboard') }}">Dashboard</a><a href="{{ url_for('doubt') }}">Doubts</a><a href="{{ url_for('profile') }}">Profile</a><a href="{{ url_for('logout') }}" class="text-cyan-300">Logout</a>
+<div class="navlinks"><button id="gp-mute" type="button" class="text-xl px-2" aria-label="Toggle sound">🔊</button>{% if me %}<a href="{{ url_for('dashboard') }}">Dashboard</a><a href="{{ url_for('doubt') }}">Doubts</a><a href="{{ url_for('profile') }}">Profile</a><a href="{{ url_for('logout') }}" class="text-cyan-300">Logout</a>
 {% else %}<a href="{{ url_for('login') }}">Login</a><a class="btn" href="{{ url_for('register') }}">Get started</a>{% endif %}</div></nav>
 <div class="fixed top-3 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md space-y-2">
 {% for c,m in get_flashed_messages(with_categories=true) %}<div class="toast g px-4 py-3 text-sm {{ 'border-emerald-400' if c=='ok' else 'border-rose-400' }}" onclick="this.remove()">{{ '✅' if c=='ok' else '⚠️' }} {{ m }}</div>{% endfor %}</div>
@@ -21,4 +20,6 @@ var css='';try{var r=await fetch('{{ url_for("static",filename="app.css") }}');c
 var h='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+name+'</title><link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&display=swap" rel="stylesheet"><style>*{-webkit-print-color-adjust:exact;print-color-adjust:exact}body{font-family:Segoe UI,system-ui,sans-serif;max-width:780px;margin:0 auto;padding:16px;color:#0f172a;background:#fff;line-height:1.5}.g,section,article{border:1px solid #cbd5e1;border-radius:12px;padding:12px;margin:12px 0}h1,h2,h3{margin:.6em 0 .3em}.pb{margin:12px 0}@media print{.pb{display:none}.paper{box-shadow:none}}'+css+'</style></head><body><div class="pb"><button onclick="window.print()" style="padding:8px 14px">🖨 Print / Save as PDF</button></div><h1>'+name+'</h1><p style="color:#64748b">Downloaded from GrowthPulse</p>'+c.innerHTML+'</body></html>';
 var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([h],{type:'text/html'}));a.download=name.replace(/[^\w]+/g,'_')+'.html';document.body.appendChild(a);a.click();a.remove()}
 </script>
+<script src="{{ url_for('static',filename='sound.js') }}"></script>
+{% include "_bot.html" %}
 <script>setTimeout(()=>document.querySelectorAll('.toast').forEach(e=>e.remove()),6000)</script></body></html>
