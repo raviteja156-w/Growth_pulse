@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% block c %}
-<form method="post" action="{{ url_for('submit_desc',cid=c.id) }}" enctype="multipart/form-data" class="space-y-4 mt-4" onsubmit="var b=this.querySelector('button.btn');b.disabled=true;b.textContent='Checking your answers… this can take a minute'">
-<h2 class="text-2xl font-bold glow">✍️ Descriptive test: {{c.title}}</h2>
+<form method="post" action="{{ url_for('submit_desc',cid=c.id) }}" enctype="multipart/form-data" id="paper" class="space-y-4 mt-4" onsubmit="var b=this.querySelector('button.btn');b.disabled=true;b.textContent='Checking your answers… this can take a minute'">
+<button type="button" class="g px-3 py-2 text-sm nodl" onclick="dlPage('#paper','Written test - {{ c.title|e }}')">⬇ Download this test</button><h2 class="text-2xl font-bold glow">✍️ Descriptive test: {{c.title}}</h2>
 <div class="g p-4 border-amber-400 text-sm">✍️ <b>Please write clearly.</b> For handwritten answers use dark ink on plain paper, good light, keep the whole page in the photo, and show every step for maths. If the AI cannot read it, it will ask you to upload again.</div>
 {% for x in qs %}{% set i=loop.index0 %}<div class="g p-4"><div class="text-xs text-cyan-300">{{x.topic}} · {{ '🧮 Maths' if x.kind=='math' else '📖 Theory' }} · 10 marks</div>
 {{ x.q|pp }}

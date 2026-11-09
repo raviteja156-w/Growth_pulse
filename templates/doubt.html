@@ -20,10 +20,12 @@
 </form>
 
 <section id="answers" class="mt-8">
-  {% if hist %}<h3 class="text-xl font-bold mb-3">📒 Your answers</h3>
-  <div class="space-y-5">
+  {% if hist %}<div class="flex flex-wrap justify-between items-center gap-2 mb-1"><h3 class="text-xl font-bold">📒 Your answers</h3><button type="button" class="g px-4 py-2 text-sm" onclick="dlPage('#alist','GrowthPulse doubts')">⬇ Download all</button></div>
+  <p class="text-xs text-amber-300 mb-3">⏳ Answers are deleted automatically 24 hours after they are made. Download what you want to keep.</p>
+  <div class="space-y-5" id="alist">
   {% for h in hist %}
-    <article class="g p-4 md:p-5 {{ 'border-emerald-400' if loop.first }}">
+    <article id="a{{ loop.index }}" class="g p-4 md:p-5 {{ 'border-emerald-400' if loop.first }}">
+      <div class="flex justify-between gap-2 flex-wrap nodl"><span class="text-xs text-amber-300">⏳ {{ h.left_s // 3600 }}h {{ (h.left_s % 3600) // 60 }}m left</span><button type="button" class="text-cyan-300 text-sm underline" onclick="dlPage('#a{{ loop.index }}','GrowthPulse doubt answer')">⬇ Download</button></div>
       <div class="mini text-cyan-300">{{ 'Latest · ' if loop.first }}{{ h.created.strftime('%d %b %Y, %I:%M %p') if h.created }}</div>
       <p class="font-semibold mt-1 pl">🙋 {{ h.question }}</p>
       <div class="mt-3">{{ h.answer|ans }}</div>

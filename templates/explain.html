@@ -1,8 +1,9 @@
 {% extends "base.html" %}{% block c %}{% from "_ask.html" import askbox %}
-<div class="max-w-3xl mx-auto">
+<div class="max-w-3xl mx-auto" id="dlmain">
 <a href="{{ url_for('course',cid=c.id) }}" class="text-sm text-cyan-300 inline-block py-1">← Back to plan</a>
 <div class="mini text-cyan-300 mt-2">{{ c.title }} · explained in notes</div>
 <h2 class="text-2xl md:text-3xl font-bold glow">{{ t }}</h2>
+<button type="button" class="g px-4 py-2 mt-2 text-sm nodl" onclick="dlPage('#dlmain','{{ t|e }}')">⬇ Download these notes</button>
 <div class="g p-4 md:p-5 mt-3">{{ body|ans }}{{ askbox(url_for('ask_ai'), t ~ ' — ' ~ body) }}</div>
-<a class="inline-block mt-3 text-sm text-cyan-300 underline py-2" href="{{ url_for('explain',cid=c.id,t=t,fresh=1) }}">🔄 Did not understand? Explain again</a>
+<a class="inline-block mt-3 text-sm nodl text-cyan-300 underline py-2" href="{{ url_for('explain',cid=c.id,t=t,fresh=1) }}">🔄 Did not understand? Explain again</a>
 </div>{% endblock %}

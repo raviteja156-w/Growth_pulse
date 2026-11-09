@@ -1,9 +1,10 @@
 {% extends "base.html" %}{% block c %}{% from "_ask.html" import askbox %}
-<div class="max-w-3xl mx-auto">
+<div class="max-w-3xl mx-auto" id="lesson">
 <a href="{{ url_for('course',cid=c.id) }}" class="text-sm text-cyan-300 inline-block py-1">← Back to plan</a>
 <div class="flex flex-wrap justify-between items-start gap-2 mt-1">
 <div><div class="text-cyan-300 font-bold text-sm md:text-base">Day {{n}} of {{last}} · {{c.title}}</div><h2 class="text-2xl md:text-3xl font-bold glow">{{ L.title or d.focus|join(', ') }}</h2></div>
 {% if done %}<span class="g px-3 py-1 border-emerald-400 text-sm">✅ Completed</span>{% endif %}</div>
+<button type="button" class="g px-4 py-2 mt-3 text-sm nodl" onclick="dlPage('#lesson','GrowthPulse Day {{n}} - {{ c.title|e }}')">⬇ Download this day</button>
 
 {% if L.intro %}<div class="g p-4 md:p-5 mt-4"><div class="mini text-cyan-300 mb-1">🌱 Let's begin</div>{{ L.intro|pp }}</div>{% endif %}
 
@@ -44,7 +45,7 @@
 <div class="space-y-3">{% for m in chats %}{% if m.role=='user' %}<div class="g p-3 text-sm md:text-base pl border-cyan-300"><b>You:</b> {{ m.msg }}</div>
 {% else %}<div class="g p-3 border-emerald-400"><div class="font-bold text-sm mb-1">🤖 Tutor</div>{{ m.msg|ans }}</div>{% endif %}
 {% else %}<p class="text-sm text-slate-400">No doubts yet. Use "Ask AI" under any explanation, or type below.</p>{% endfor %}</div>
-<form method="post" action="{{ url_for('ask',cid=c.id,n=n) }}" enctype="multipart/form-data" class="g p-4 mt-3 space-y-3" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Thinking…'">
+<form method="post" action="{{ url_for('ask',cid=c.id,n=n) }}" enctype="multipart/form-data" class="g p-4 mt-3 space-y-3 nodl" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Thinking…'">
 <textarea class="in" name="question" rows="3" placeholder="Type any specific question here (or just upload your handwritten note)"></textarea>
 <label class="block text-sm text-slate-300">📎 Handwritten note (photo) <span class="text-amber-300">– write clearly, dark pen, good light</span></label>
 <input class="in" type="file" name="note" accept="image/*" multiple>

@@ -1,8 +1,8 @@
-import os, io, json, re, uuid, hmac, base64, mimetypes, functools, requests
+import os, io, json, re, uuid, hmac, base64, mimetypes, functools, time, requests
 from concurrent.futures import ThreadPoolExecutor
 import psycopg2, psycopg2.extras, psycopg2.pool
 from markupsafe import Markup, escape
-from flask import Flask, render_template, request, redirect, url_for, session, flash, abort, Response
+from flask import Flask, render_template, request, redirect, url_for, session, flash, abort, Response, g, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 from pypdf import PdfReader
@@ -59,6 +59,12 @@ SCHEMA = [
  "alter table courses add column if not exists research text default ''",
  "alter table courses add column if not exists qmode text default 'syllabus'",
  "create table if not exists iq(id serial primary key,course_id integer,n integer,topic text,q text,ans text default '',unique(course_id,n))",
+ "alter table users add column if not exists suspended boolean default false",
+ "alter table users add column if not exists access text default ''",
+ "alter table users add column if not exists last_seen timestamp",
+ "alter table payments add column if not exists decided timestamp",
+ "update payments set decided=created where decided is null and status<>'pending'",
+ "update users set access='paid' where pay_status='approved' and (access is null or access='')",
  "create table if not exists topicx(course_id integer,key text,body text,primary key(course_id,key))",
  "create index if not exists i_courses_user on courses(user_id)",
  "create index if not exists i_chats_cd on chats(course_id,day)",
@@ -79,7 +85,9 @@ try: init_db()
 except Exception as _e: print("DB INIT ERROR:", _e)
 
 def me():
-    return q("select * from users where id=?", (session["uid"],), one=True) if "uid" in session else None
+    if "uid" not in session: return None
+    if "u" not in g: g.u = q("select * from users where id=?", (session["uid"],), one=True)
+    return g.u
 @app.context_processor
 def inj(): return dict(me=me())
 
@@ -306,6 +314,41 @@ def mind(uid, cid=None):
         if w: s += " Weak topics: " + ", ".join(f"{t} ({p}%)" for t, p in w) + "."
     return s
 
+PRICE = int(os.getenv("PRICE", "50"))
+OPEN_EP = {"static", "welcome", "demo_done", "adminlogin", "adminlogout", "admin", "admin_act", "admin_user", "shot"}
+_last_purge = [0.0]
+
+def purge():
+    """Keep the database small: doubts live 24h; payment screenshots are deleted 24h after the admin decides (7 days max if never decided)."""
+    try:
+        q("delete from doubts where created < localtimestamp - interval '24 hours'")
+        q("""update payments set img=null where img is not null and
+             ((status<>'pending' and decided < localtimestamp - interval '24 hours') or created < localtimestamp - interval '7 days')""")
+    except Exception as e: print("purge error", str(e)[:150])
+
+@app.before_request
+def gate():
+    ep = request.endpoint or ""
+    if ep == "static": return
+    now = time.time()
+    if now - _last_purge[0] > 600: _last_purge[0] = now; purge()
+    if ep in OPEN_EP: return
+    if not request.cookies.get("gp_demo"): return redirect(url_for("welcome"))   # watch the demo video first
+    u = me()
+    if u:
+        if u.get("suspended"):
+            session.clear(); flash("Your account is suspended. Please contact the admin.", "err"); return redirect(url_for("login"))
+        if now - session.get("seen", 0) > 240:
+            session["seen"] = now; q("update users set last_seen=localtimestamp where id=?", (u["id"],))
+
+@app.route("/welcome")
+def welcome():
+    return render_template("welcome.html", seen=bool(request.cookies.get("gp_demo")))
+
+@app.route("/demo-done", methods=["POST"])
+def demo_done():
+    r = jsonify(ok=True); r.set_cookie("gp_demo", "1", max_age=31536000, httponly=True, samesite="Lax", secure=request.is_secure); return r
+
 @app.route("/")
 def home(): return render_template("home.html")
 
@@ -326,6 +369,8 @@ def login():
     if request.method == "POST":
         u = q("select * from users where email=?", (request.form["email"].strip().lower(),), one=True)
         if u and check_password_hash(u["pw"], request.form["password"]):
+            if u.get("suspended"):
+                flash("Your account is suspended. Please contact the admin.", "err"); return render_template("auth.html", mode="login")
             session["uid"] = u["id"]; flash("Logged in successfully.", "ok"); return redirect(url_for("dashboard"))
         flash("Wrong email or password.", "err")
     return render_template("auth.html", mode="login")
@@ -717,7 +762,8 @@ def doubt():
                   (u["id"], (question or "Handwritten note") + (" 📎" if imgs else ""), ans))
                 return redirect(url_for("doubt") + "#answers")
             except Exception as e: flash(f"AI error ({str(e)[:150]}).", "err")
-    hist = q("select question,answer,created from doubts where user_id=? order by id desc limit 15", (u["id"],))
+    hist = q("""select question,answer,created,greatest(0, extract(epoch from (created + interval '24 hours' - localtimestamp)))::int as left_s
+                from doubts where user_id=? and created > localtimestamp - interval '24 hours' order by id desc limit 15""", (u["id"],))
     return render_template("doubt.html", hist=hist, question=question)
 
 @app.route("/ask-ai", methods=["POST"])
@@ -772,18 +818,40 @@ def adminlogin():
 @app.route("/admin")
 def admin():
     if not session.get("admin"): return redirect(url_for("adminlogin"))
-    ps = q("select p.id,p.status,p.created,u.name,u.email,u.phone from payments p join users u on u.id=p.user_id order by p.id desc")
-    return render_template("admin.html", ps=ps)
+    paid_n = q("select count(*) n from payments where status='approved'", one=True)["n"]
+    pend_n = q("select count(*) n from payments where status='pending'", one=True)["n"]
+    st = q("""select count(*) total, count(*) filter (where pay_status='approved') active, count(*) filter (where access='free') free,
+              count(*) filter (where suspended) susp, count(*) filter (where last_seen > localtimestamp - interval '10 minutes') online from users""", one=True)
+    users = q("""select id,name,email,phone,pay_status,access,suspended,last_seen,
+                 coalesce(last_seen > localtimestamp - interval '10 minutes', false) as online from users order by last_seen desc nulls last, id desc""")
+    ps = q("""select p.id,p.status,p.created,p.decided,(p.img is not null) as has_img,u.name,u.email,u.phone
+              from payments p join users u on u.id=p.user_id order by p.id desc limit 100""")
+    return render_template("admin.html", ps=ps, users=users, st=st, money=paid_n * PRICE, paid_n=paid_n, pend_n=pend_n, price=PRICE)
 
 @app.route("/admin/<int:pid>/<act>", methods=["POST"])
 def admin_act(pid, act):
     if not session.get("admin"): abort(403)
     p = q("select * from payments where id=?", (pid,), one=True)
     if p and act in ("approve", "reject"):
-        q("update payments set status=? where id=?", (act + "d", pid))
-        q("update users set pay_status=? where id=?", ("approved" if act == "approve" else "rejected", p["user_id"]))
+        q("update payments set status=?, decided=localtimestamp where id=?", (act + "d", pid))
+        if act == "approve": q("update users set pay_status='approved', access='paid' where id=?", (p["user_id"],))
+        else: q("update users set pay_status='rejected' where id=?", (p["user_id"],))
         flash(f"Payment {act}d.", "ok")
     return redirect(url_for("admin"))
+
+@app.route("/admin/user/<int:uid>/<act>", methods=["POST"])
+def admin_user(uid, act):
+    if not session.get("admin"): abort(403)
+    sql = {"suspend": "suspended=true", "unsuspend": "suspended=false",
+           "grant": "pay_status='approved', access='free', suspended=false", "revoke": "pay_status='none', access=''"}.get(act)
+    if sql:
+        q("update users set " + sql + " where id=?", (uid,))
+        flash({"suspend": "User suspended.", "unsuspend": "User un-suspended.", "grant": "Free access given.", "revoke": "Access removed."}[act], "ok")
+    return redirect(url_for("admin") + "#users")
+
+@app.route("/adminlogout")
+def adminlogout():
+    session.pop("admin", None); return redirect(url_for("adminlogin"))
 
 @app.route("/admin/file/<int:pid>")
 def shot(pid):

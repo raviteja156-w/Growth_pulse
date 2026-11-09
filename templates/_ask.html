@@ -1,5 +1,5 @@
 {% macro askbox(action, ctx) %}
-<details class="mt-2"><summary class="text-cyan-300 text-sm cursor-pointer py-2">🙋 Ask AI about this</summary>
+<details class="mt-2 nodl"><summary class="text-cyan-300 text-sm cursor-pointer py-2">🙋 Ask AI about this</summary>
 <form method="post" action="{{ action }}" enctype="multipart/form-data" class="mt-2 space-y-2" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Thinking…'">
 <input type="hidden" name="context" value="{{ ctx|truncate(700, True, '') }}">
 <textarea class="in" name="question" rows="2" placeholder="What is not clear? Type your question…"></textarea>

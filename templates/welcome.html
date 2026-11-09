@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#060d24">
+<title>Watch the demo – GrowthPulse</title><script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="{{ url_for('static',filename='app.css') }}"></head>
+<body class="min-h-screen text-slate-100 overflow-x-hidden"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+<main class="px-4 py-6 max-w-4xl mx-auto text-center">
+<div class="text-2xl md:text-3xl font-bold glow"><span class="spin">💗</span> GrowthPulse</div>
+<h1 class="text-2xl md:text-4xl font-extrabold glow mt-4">{{ 'Product demo' if seen else 'Watch this 1-minute demo to get started' }}</h1>
+<p class="text-slate-300 mt-2 text-sm md:text-base">See how GrowthPulse plans your semester, teaches in handwritten notes, tests you and fixes your weak topics.</p>
+<div class="g p-2 md:p-3 mt-5"><video id="v" class="w-full rounded-xl bg-black" controls controlsList="nodownload noplaybackrate" disablePictureInPicture playsinline autoplay muted preload="auto" poster="{{ url_for('static',filename='demo-poster.jpg') }}"><source src="{{ url_for('static',filename='demo.mp4') }}" type="video/mp4">Your browser cannot play this video.</video></div>
+<p id="msg" class="text-sm text-amber-300 mt-3">{{ 'You have already watched it. You can continue any time.' if seen else '▶ Please watch the whole video. The app opens when it ends.' }}</p>
+<a id="go" href="{{ url_for('home') }}" class="btn mt-3 {{ '' if seen else 'opacity-40 pointer-events-none' }}">Continue to GrowthPulse →</a>
+</main>
+<script>
+var v=document.getElementById('v'),go=document.getElementById('go'),msg=document.getElementById('msg'),max=0,seen={{ 'true' if seen else 'false' }};
+v.addEventListener('timeupdate',function(){if(!v.seeking&&v.currentTime>max)max=v.currentTime});
+v.addEventListener('seeking',function(){if(!seen&&v.currentTime>max+.6)v.currentTime=max});
+v.addEventListener('ended',function(){fetch('{{ url_for("demo_done") }}',{method:'POST'}).then(function(){seen=true;go.classList.remove('opacity-40','pointer-events-none');msg.textContent='✅ Thanks for watching! You can start now.';msg.className='text-sm text-emerald-300 mt-3';go.focus()}).catch(function(){msg.textContent='Could not save progress. Please check your internet and play again.'})});
+</script></body></html>
