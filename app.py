@@ -1,4 +1,4 @@
-import os, io, json, re, uuid, hmac, base64, mimetypes, functools, time, requests
+import os, io, secrets, json, re, uuid, hmac, base64, mimetypes, functools, time, requests
 from concurrent.futures import ThreadPoolExecutor
 import psycopg2, psycopg2.extras, psycopg2.pool
 from markupsafe import Markup, escape
@@ -62,6 +62,7 @@ SCHEMA = [
  "alter table users add column if not exists suspended boolean default false",
  "alter table users add column if not exists access text default ''",
  "alter table users add column if not exists last_seen timestamp",
+ "alter table users add column if not exists sess_token text default ''",
  "alter table payments add column if not exists decided timestamp",
  "update payments set decided=created where decided is null and status<>'pending'",
  "update users set access='paid' where pay_status='approved' and (access is null or access='')",
@@ -84,6 +85,12 @@ def init_db():
     finally: p.putconn(c)
 try: init_db()
 except Exception as _e: print("DB INIT ERROR:", _e)
+
+def start_session(uid):
+    """One account = one device: every login makes a fresh token; older devices' tokens stop matching."""
+    tok = secrets.token_hex(24)
+    q("update users set sess_token=? where id=?", (tok, uid))
+    session.clear(); session["uid"] = uid; session["tok"] = tok
 
 def me():
     if "uid" not in session: return None
@@ -339,6 +346,8 @@ def gate():
     if u:
         if u.get("suspended"):
             session.clear(); flash("Your account is suspended. Please contact the admin.", "err"); return redirect(url_for("login"))
+        if not u.get("sess_token") or session.get("tok") != u["sess_token"]:
+            session.clear(); flash("This account was logged in on another device, so you were logged out here. Please log in again.", "err"); return redirect(url_for("login"))
         if now - session.get("seen", 0) > 240:
             session["seen"] = now; q("update users set last_seen=localtimestamp where id=?", (u["id"],))
 
@@ -390,7 +399,7 @@ def register():
                     (f["name"].strip(), f["email"].strip().lower(), f["phone"].strip(), generate_password_hash(f["password"])), rid=True)
         except psycopg2.IntegrityError:
             flash("This email is already registered. Please log in.", "err"); return redirect(url_for("login"))
-        session["uid"] = uid; flash("Account created successfully! Welcome aboard.", "ok"); return redirect(url_for("dashboard"))
+        start_session(uid); flash("Account created successfully! Welcome aboard.", "ok"); return redirect(url_for("dashboard"))
     return render_template("auth.html", mode="register")
 
 @app.route("/login", methods=["GET", "POST"])
@@ -400,12 +409,15 @@ def login():
         if u and check_password_hash(u["pw"], request.form["password"]):
             if u.get("suspended"):
                 flash("Your account is suspended. Please contact the admin.", "err"); return render_template("auth.html", mode="login")
-            session["uid"] = u["id"]; flash("Logged in successfully.", "ok"); return redirect(url_for("dashboard"))
+            start_session(u["id"]); flash("Logged in successfully.", "ok"); return redirect(url_for("dashboard"))
         flash("Wrong email or password.", "err")
     return render_template("auth.html", mode="login")
 
 @app.route("/logout")
-def logout(): session.clear(); flash("You have been logged out.", "ok"); return redirect(url_for("home"))
+def logout():
+    if session.get("uid") and session.get("tok"):
+        q("update users set sess_token='' where id=? and sess_token=?", (session["uid"], session["tok"]))
+    session.clear(); flash("You have been logged out.", "ok"); return redirect(url_for("home"))
 
 @app.route("/dashboard")
 def dashboard():
