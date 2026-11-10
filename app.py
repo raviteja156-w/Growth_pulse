@@ -199,16 +199,23 @@ app.add_template_filter(ink, "ink"); app.add_template_filter(ans_html, "ans"); a
 
 NOTE_STYLE = """HANDWRITTEN NOTES STYLE (very important): write exactly like a good teacher writing neat class notes by hand for a student. One short idea per line, every line separated by a newline. Begin with the direct answer or definition in one line. Then explain step by step in very simple words. Always include one small everyday EXAMPLE (start that line with 'Example:'). If useful, describe a tiny diagram in words (start that line with 'Diagram:'). Finish with one line starting 'Remember:' that holds the key points to memorise. Never write long paragraphs."""
 
+
+DEPTH_STYLE = """DEPTH RULE (very important): the student must understand the WHOLE concept from the very beginning to full depth, never a thin or partial answer.
+- If the student names a whole topic/concept: teach it completely from zero. What it is, why it exists, where it is used, the basic words, how it works step by step, the main parts/types/formulas/rules, several worked examples (easy to hard), common mistakes, exam points, and a short summary.
+- If the student asks about ONE specific part, question or doubt: first give a short big-picture of the whole concept it belongs to (what the full concept is and where this part fits), then answer that specific thing in high-level depth (full reasoning, every step, why it is true, a worked example, and a second example from a different angle), then connect it back to the whole concept.
+- Never skip the basics, never stop at the definition, never say 'and so on'. Cover every important point; length should match the depth needed."""
+
 def tutor(question, ctx="", doc="", imgs=None):
     return ai(f"""A student has a doubt. {('The doubt is about this part of their study material: ' + ctx) if ctx else ''}
 Student's doubt: {question or 'Please read my handwritten note and clarify my doubt.'}
 {'A photo of the handwritten note is attached; say what you understood, and if anything is unclear ask the student to write it more clearly.' if imgs else ''}
 Reference material (may be empty):
 {doc[:12000]}
-Explain like a patient teacher to a beginner, with a small everyday example.
+Explain like a patient teacher to a beginner, with everyday examples.
+{DEPTH_STYLE}
 {NOTE_STYLE}
 {STYLE}
-{MATH_STYLE}""", 2500, imgs or None)
+{MATH_STYLE}""", 5000, imgs or None)
 
 def qctx(c):
     if (c.get("qmode") or "syllabus") != "questions": return ""
@@ -360,7 +367,7 @@ def demo_done():
     r = jsonify(ok=True); r.set_cookie("gp_demo", "1", max_age=31536000, httponly=True, samesite="Lax", secure=request.is_secure); return r
 
 
-BOT_SYS = """You are the GrowthPulse assistant inside a study app for students in India. GrowthPulse: upload a syllabus or important questions, pick days, get a day-by-day plan with handwritten-style lessons, ask doubts (type or handwritten photo), take MCQ or descriptive tests, see mind-set analysis and retrain weak topics. Features unlock with a one-time Rs 50 payment approved by the admin. Answer ONLY what the student asked, in simple short lines (max 120 words), plain text, no markdown, no tables. Use the page content given to be specific. If you are not sure, say so and suggest the Doubts page. Never invent features, prices or links."""
+BOT_SYS = """You are the GrowthPulse assistant inside a study app for students in India. GrowthPulse: upload a syllabus or important questions, pick days, get a day-by-day plan with handwritten-style lessons, ask doubts (type or handwritten photo), take MCQ or descriptive tests, see mind-set analysis and retrain weak topics. Features unlock with a one-time Rs 50 payment approved by the admin. Answer ONLY what the student asked, plain text, no markdown, no tables. If the question is about using the app, answer in a few short lines (max 120 words). If the question is about a STUDY concept, teach it fully: start with a short big-picture of the whole concept from the beginning (what it is, why it matters), then go deep into the exact part asked (step by step, with worked examples and a common mistake), then a short summary. Use simple words, one idea per line, and never stop at a thin answer. Use the page content given to be specific. If you are not sure, say so and suggest the Doubts page. Never invent features, prices or links."""
 _bot_hits = {}
 @app.route("/bot", methods=["POST"])
 def bot():
@@ -376,16 +383,16 @@ def bot():
     prompt = f"""{BOT_SYS}
 Student is {'logged in (' + ('fees paid' if u['pay_status'] == 'approved' else 'features locked until payment') + ')' if u else 'not logged in'}.
 Current page: {str(j.get('title', ''))[:100]} ({str(j.get('path', ''))[:100]})
-Page content (may be partial): {str(j.get('page', ''))[:1200]}
+Page content (may be partial): {str(j.get('page', ''))[:2500]}
 Chat so far:
 {hist or '(none)'}
 Student: {qn}
 Assistant:"""
-    try: a = ai(prompt, 700)
+    try: a = ai(prompt, 2800)
     except Exception as e:
         print("bot error", str(e)[:150])
         a = "Sorry, I could not reach the AI just now. Please try again in a moment. For study doubts you can also use the Doubts page."
-    return jsonify(answer=a[:1500])
+    return jsonify(answer=a[:7000])
 
 @app.route("/")
 def home(): return render_template("home.html")
@@ -563,7 +570,7 @@ def qlesson(c, d, n):
         payload = json.dumps([{"n": r["n"], "q": r["q"], "topic": r["topic"]} for r in miss])
         res = aj(f"""Subject: '{c['title']}' ({c['exam']}). These are IMPORTANT exam questions. Write the full model answer for each one so a student can learn it and write it in the exam.
 Questions: {payload}
-Answer length should suit the marks: a short definition question gets 5 to 7 lines, an explain/discuss question gets 12 to 20 lines, a numerical gets the full worked solution.
+Answer length should suit the marks: a short definition question gets 8 to 12 lines, an explain/discuss question gets 20 to 30 lines, a numerical gets the full worked solution. For every answer first give a 2-line big picture of the whole concept the question belongs to, then answer the question in full depth with an example.
 {NOTE_STYLE}
 {STYLE}
 {MATH_STYLE}
@@ -594,11 +601,13 @@ The student may be a COMPLETE BEGINNER who knows nothing about this topic and is
 - For every idea give a simple everyday ANALOGY an Indian student relates to (chai, cricket, bus, mobile recharge, kirana shop, cooking, etc).
 - For every section give one worked EXAMPLE with small, friendly numbers or a real situation. For maths or numbers set "math":true and write the example in notebook style.
 - Tell one COMMON MISTAKE beginners make in that section.
+{DEPTH_STYLE}
+Cover the WHOLE of today's focus from the beginning to depth: every sub-topic, rule, formula, type and step, with at least two examples per section. Do not leave any part of the focus half-explained.
 {STYLE}
 {NOTE_STYLE}
 {MATH_STYLE}
 
-Return JSON: {{"title":"","math":true or false (true if today's topic needs calculations),"intro":"3-5 simple sentences: what we learn today and why it matters","words":[{{"term":"","meaning":"one simple line"}}] (3 to 6 key words),"sections":[{{"h":"","body":"explanation written as handwritten class notes: one short idea per line, lines separated by newline characters","analogy":"everyday comparison","example":"worked example, one step per line","math":true or false,"mistake":"common beginner mistake and how to avoid it"}}] (4 to 6 sections),"recap":["",""] (4 to 6 simple points),"practice":[{{"q":"a question to try","answer":"full solution written step by step"}}] (3 questions, easy to medium)}}""", 7000)
+Return JSON: {{"title":"","math":true or false (true if today's topic needs calculations),"intro":"3-5 simple sentences: what we learn today and why it matters","words":[{{"term":"","meaning":"one simple line"}}] (3 to 6 key words),"sections":[{{"h":"","body":"explanation written as handwritten class notes: one short idea per line, lines separated by newline characters","analogy":"everyday comparison","example":"worked example, one step per line","math":true or false,"mistake":"common beginner mistake and how to avoid it"}}] (4 to 6 sections),"recap":["",""] (4 to 6 simple points),"practice":[{{"q":"a question to try","answer":"full solution written step by step"}}] (3 questions, easy to medium)}}""", 9000)
     q("insert into lessons(course_id,day,body) values(?,?,?) on conflict(course_id,day) do update set body=excluded.body", (c["id"], n, json.dumps(L)))
     return L
 
@@ -648,11 +657,12 @@ Earlier chat:
 {('The student is asking about this exact part: ' + ctx) if ctx else ''}
 Student's doubt: {question or 'Please read my handwritten note and clarify my doubt.'}
 {'The student attached a photo of their handwritten note. Read it carefully, say what you understood, and if a word or line is unclear, ask them to write it more clearly.' if imgs else ''}
-Explain like a patient teacher to a beginner: simple words, a small everyday example, tied to today's topic.
+Explain like a patient teacher to a beginner: simple words, everyday examples, tied to today's topic.
+{DEPTH_STYLE}
 {NOTE_STYLE}
 {STYLE}
 {MATH_STYLE}"""
-    try: a = ai(prompt, 2500, imgs or None)
+    try: a = ai(prompt, 5000, imgs or None)
     except Exception as e:
         flash(f"AI error ({str(e)[:120]}).", "err"); return redirect(back)
     tag = ("📌 " + ctx[:70].replace("\n", " ") + "…\n") if ctx else ""
@@ -853,10 +863,11 @@ def explain(cid):
             body = ai(f"""Teach this to a student preparing for '{c['title']}' ({c['exam']}): "{t}".
 Source material from the student (may be empty): {(c['src'] or '')[:5000]}
 {mind(c['user_id'], cid)}
-If it is a question, write the complete model answer the student can learn and write in the exam. If it is a topic, teach it from zero.
+If it is a question, write the complete model answer the student can learn and write in the exam. If it is a topic, teach it from zero to full depth.
+{DEPTH_STYLE}
 {NOTE_STYLE}
 {STYLE}
-{MATH_STYLE}""", 3000)
+{MATH_STYLE}""", 5500)
         except Exception as e:
             flash(f"Could not explain this right now ({str(e)[:120]}). Please try again.", "err"); return redirect(url_for("course", cid=cid))
         q("insert into topicx(course_id,key,body) values(?,?,?) on conflict(course_id,key) do update set body=excluded.body", (cid, key, body))

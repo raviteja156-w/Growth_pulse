@@ -1,9 +1,14 @@
 {% macro askbox(action, ctx) %}
-<details class="mt-2 nodl"><summary class="text-cyan-300 text-sm cursor-pointer py-2">🙋 Ask AI about this</summary>
-<form method="post" action="{{ action }}" enctype="multipart/form-data" class="mt-2 space-y-2" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Thinking…'">
-<input type="hidden" name="context" value="{{ ctx|truncate(700, True, '') }}">
-<textarea class="in" name="question" rows="2" placeholder="What is not clear? Type your question…"></textarea>
+<details class="mt-3 nodl askdt"><summary class="text-cyan-300 text-sm font-semibold cursor-pointer py-2 select-none"><span class="askar" style="display:inline-block;transition:transform .2s">➤</span> Ask AI about this <span class="text-slate-400 font-normal">· more examples · explain again · go deeper</span></summary>
+<form method="post" action="{{ action }}" enctype="multipart/form-data" class="mt-2 space-y-2" onsubmit="var b=this.querySelector('button.btn');b.disabled=true;b.textContent='Thinking…'">
+<input type="hidden" name="context" value="{{ ctx|truncate(900, True, '') }}">
+<div class="flex flex-wrap gap-2">
+{% for lbl, txt in [('📌 More examples','Give me 3 more different examples of this, from easy to hard, each worked out step by step.'),('🔄 Explain again','I did not understand. Explain the whole concept again from the very beginning in simpler words, with a new analogy.'),('🧠 Go deeper','Go deeper: explain the full concept from the beginning to depth, with all rules, steps, types and a worked example.'),('❓ Why?','Why does this work like this? Explain the reason step by step.')] %}
+<button type="button" class="g px-3 py-1 text-xs" onclick="var f=this.closest('form'),t=f.querySelector('textarea');t.value={{ txt|tojson|forceescape }};t.focus()">{{ lbl }}</button>
+{% endfor %}</div>
+<textarea class="in" name="question" rows="2" placeholder="What is not clear? Ask for an example, a concept, or the full topic again…"></textarea>
 <label class="block text-xs text-slate-300">📎 or upload your handwritten doubt (photo)</label>
 <input class="in" type="file" name="note" accept="image/*" multiple>
-<button class="btn">Ask AI</button></form></details>
+<button class="btn">➤ Ask AI</button></form></details>
+<style>.askdt[open]>summary .askar{transform:rotate(90deg)}</style>
 {% endmacro %}

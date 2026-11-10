@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% block c %}{% from "_ask.html" import askbox %}
 <div id="res"><h2 class="text-2xl font-bold glow mt-4">📊 Written test result: {{c.title}}</h2>
 {% if out_of %}<div class="g p-4 mt-3 text-xl">Score: <b class="text-cyan-300">{{score}}/{{out_of}}</b></div>{% endif %}
-{% if coach %}<div class="g p-4 mt-3 whitespace-pre-line">🧭 {{coach}}</div>{% endif %}
+{% if coach %}<div class="g p-4 mt-3"><div class="whitespace-pre-line">🧭 {{coach}}</div>{{ askbox(url_for('ask_ai'), 'My written test analysis: ' ~ coach) }}</div>{% endif %}
 {% for r in review %}{% set good = r.status=='graded' and r.score>=7 %}
 <div class="g p-4 mt-3 {{ 'border-emerald-400' if good else 'border-amber-400' if r.status=='graded' and r.score>=4 else 'border-rose-400' }}">
 <div class="text-xs text-cyan-300">Question {{loop.index}} · {{r.topic}}</div>{{ r.q|pp }}

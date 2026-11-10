@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% block c %}
+{% extends "base.html" %}{% block c %}{% from "_ask.html" import askbox %}
 <h2 class="text-2xl md:text-3xl font-bold glow">{{c.title}} <span class="text-sm text-cyan-300">{{c.exam}}{{ ' · Important questions' if qmode=='questions' }}</span></h2>
 <div class="flex gap-3 my-4 flex-wrap"><a class="btn" href="{{ url_for('test',cid=c.id) }}">📝 Take a test</a><a class="g px-4 py-2" href="{{ url_for('analysis',cid=c.id) }}">📊 Analysis</a>
 <form method="post" action="{{ url_for('retrain',cid=c.id) }}"><button class="g px-4 py-2">🔁 Retrain plan</button></form><button type="button" class="g px-4 py-2" onclick="dlPage('main','Study plan - {{ c.title|e }}')">⬇ Download plan</button></div>
@@ -6,7 +6,7 @@
 <label class="font-semibold text-cyan-300">🔎 Want a specific {{ 'question or topic' if qmode=='questions' else 'topic or question' }} explained? Type it here</label>
 <div class="flex gap-2 mt-2 flex-wrap"><input class="in flex-1 min-w-[12rem]" name="t" list="tl" placeholder="Pick from the list or type your own" required>
 <datalist id="tl">{% for t in topics %}<option value="{{ t.name }}">{% endfor %}{% for x in qs %}<option value="{{ x.q|truncate(120) }}">{% endfor %}</datalist><button class="btn">Explain in notes</button></div></form>
-{% if c.research %}<details class="g p-4 mb-4 border-emerald-400"><summary class="font-semibold text-emerald-300">🌐 Researched from the web: important topics &amp; frequently asked questions (tap to read)</summary><div class="pl text-sm md:text-base mt-3">{{ c.research }}</div></details>{% endif %}
+{% if c.research %}<details class="g p-4 mb-4 border-emerald-400"><summary class="font-semibold text-emerald-300">🌐 Researched from the web: important topics &amp; frequently asked questions (tap to read)</summary><div class="pl text-sm md:text-base mt-3">{{ c.research }}</div>{{ askbox(url_for('ask_ai'), c.title ~ ' — important topics and frequently asked questions: ' ~ c.research) }}</details>{% endif %}
 {% if st %}<div class="g p-4 mb-4 border-rose-400">⚠️ Focus first on: {% for t,p in st[:3] %}<b>{{t}}</b> ({{p}}%){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
 <div class="flex justify-between text-sm mb-1"><h3 class="font-bold text-xl">Day-by-day plan</h3><span class="text-slate-300">{{ done|length }}/{{ plan|length }} days completed</span></div>
 <div class="h-3 rounded bg-slate-800 mb-4"><div class="h-3 rounded bg-emerald-400" style="width:{{ (done|length*100//(plan|length or 1)) }}%"></div></div>

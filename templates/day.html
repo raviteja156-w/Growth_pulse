@@ -6,7 +6,7 @@
 {% if done %}<span class="g px-3 py-1 border-emerald-400 text-sm">✅ Completed</span>{% endif %}</div>
 <button type="button" class="g px-4 py-2 mt-3 text-sm nodl" onclick="dlPage('#lesson','GrowthPulse Day {{n}} - {{ c.title|e }}')">⬇ Download this day</button>
 
-{% if L.intro %}<div class="g p-4 md:p-5 mt-4"><div class="mini text-cyan-300 mb-1">🌱 Let's begin</div>{{ L.intro|pp }}</div>{% endif %}
+{% if L.intro %}<div class="g p-4 md:p-5 mt-4"><div class="mini text-cyan-300 mb-1">🌱 Let's begin</div>{{ L.intro|pp }}{{ askbox(url_for('ask',cid=c.id,n=n), L.title ~ ': ' ~ L.intro) }}</div>{% endif %}
 
 {% if L.questions %}
 {% for x in L.questions %}<section id="q{{x.n}}" class="g p-4 md:p-5 mt-3">
@@ -29,7 +29,7 @@
 {{ askbox(url_for('ask',cid=c.id,n=n), s.h ~ ': ' ~ s.body) }}
 </section>{% endfor %}
 
-{% if L.recap %}<div class="g p-4 md:p-5 mt-3 border-emerald-400"><h3 class="font-bold">✅ Quick recap</h3>{{ ('• ' ~ L.recap|join('\n• '))|pp }}</div>{% endif %}
+{% if L.recap %}<div class="g p-4 md:p-5 mt-3 border-emerald-400"><h3 class="font-bold">✅ Quick recap</h3>{{ ('• ' ~ L.recap|join('\n• '))|pp }}{{ askbox(url_for('ask',cid=c.id,n=n), 'Recap: ' ~ L.recap|join('; ')) }}</div>{% endif %}
 
 {% if L.practice %}<div class="g p-4 md:p-5 mt-3"><h3 class="font-bold">✏️ Try these yourself</h3>
 <p class="text-xs text-slate-400">Try on paper first. Then open the solution to check.</p>
@@ -43,7 +43,7 @@
 
 <section id="chat" class="mt-8"><h3 class="text-xl font-bold mb-2">🤔 Ask your doubts about this day</h3>
 <div class="space-y-3">{% for m in chats %}{% if m.role=='user' %}<div class="g p-3 text-sm md:text-base pl border-cyan-300"><b>You:</b> {{ m.msg }}</div>
-{% else %}<div class="g p-3 border-emerald-400"><div class="font-bold text-sm mb-1">🤖 Tutor</div>{{ m.msg|ans }}</div>{% endif %}
+{% else %}<div class="g p-3 border-emerald-400"><div class="font-bold text-sm mb-1">🤖 Tutor</div>{{ m.msg|ans }}{{ askbox(url_for('ask',cid=c.id,n=n), m.msg) }}</div>{% endif %}
 {% else %}<p class="text-sm text-slate-400">No doubts yet. Use "Ask AI" under any explanation, or type below.</p>{% endfor %}</div>
 <form method="post" action="{{ url_for('ask',cid=c.id,n=n) }}" enctype="multipart/form-data" class="g p-4 mt-3 space-y-3 nodl" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='Thinking…'">
 <textarea class="in" name="question" rows="3" placeholder="Type any specific question here (or just upload your handwritten note)"></textarea>
