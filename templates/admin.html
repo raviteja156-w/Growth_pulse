@@ -34,10 +34,11 @@
 <td class="p-2"><div class="flex gap-2 flex-wrap">
 {% if u.suspended %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='unsuspend') }}"><button class="btn !py-1 !min-h-0 text-xs">Un-suspend</button></form>
 {% else %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='suspend') }}" onsubmit="return confirm('Suspend {{ u.name|e }}?')"><button class="g px-3 py-1 text-xs border-rose-400">Suspend</button></form>{% endif %}
+{% if u.dev_linked %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='resetdevice') }}" onsubmit="return confirm('Unlink {{ u.name|e }}\'s device? They can then log in on one new device.')"><button class="g px-3 py-1 text-xs border-amber-400">📱 Reset device</button></form>{% endif %}
 {% if u.pay_status=='approved' %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='revoke') }}" onsubmit="return confirm('Remove access for {{ u.name|e }}?')"><button class="g px-3 py-1 text-xs">Remove access</button></form>
 {% else %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='grant') }}"><button class="g px-3 py-1 text-xs border-emerald-400">🎁 Give free access</button></form>{% endif %}</div></td></tr>
 {% else %}<tr><td class="p-3 text-slate-400" colspan="5">No users yet.</td></tr>{% endfor %}</tbody></table></div>
-<p class="text-xs text-slate-500 mt-2">🟢 online = active in the last 10 minutes.</p>
+<p class="text-xs text-slate-500 mt-2">🟢 online = active in the last 10 minutes. 📱 Reset device = lets a user log in on a new phone/computer (each account is locked to the first device it logs in on).</p>
 
 <h3 class="text-xl font-bold mt-8 mb-2">Payment history</h3>
 <div class="g p-3 space-y-1 text-sm">{% for p in ps if p.status!='pending' %}<div class="flex justify-between gap-2 flex-wrap border-b border-slate-700/50 py-1"><span>{{ p.name }} · {{ p.email }}</span><span>{{ '✅ Approved' if p.status=='approved' else '❌ Rejected' }} · {{ p.decided.strftime('%d %b %Y') if p.decided }} · {{ '📷 screenshot kept' if p.has_img else 'screenshot deleted' }}{% if p.has_img %} <a class="text-cyan-300" target="_blank" href="{{ url_for('shot',pid=p.id) }}">view</a>{% endif %}</span></div>{% else %}<p class="text-slate-400">Nothing yet.</p>{% endfor %}</div>

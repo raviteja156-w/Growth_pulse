@@ -63,6 +63,7 @@ SCHEMA = [
  "alter table users add column if not exists access text default ''",
  "alter table users add column if not exists last_seen timestamp",
  "alter table users add column if not exists sess_token text default ''",
+ "alter table users add column if not exists device_id text default ''",
  "alter table payments add column if not exists decided timestamp",
  "update payments set decided=created where decided is null and status<>'pending'",
  "update users set access='paid' where pay_status='approved' and (access is null or access='')",
@@ -86,11 +87,18 @@ def init_db():
 try: init_db()
 except Exception as _e: print("DB INIT ERROR:", _e)
 
+def link_device(resp, uid):
+    """First login links the account to that device (a long-life cookie). Nothing else can log in afterwards."""
+    did = request.cookies.get("gp_dev") or secrets.token_hex(24)
+    q("update users set device_id=? where id=?", (did, uid))
+    resp.set_cookie("gp_dev", did, max_age=10*365*24*3600, httponly=True, samesite="Lax")
+    return resp
+
 def start_session(uid):
     """One account = one device: every login makes a fresh token; older devices' tokens stop matching."""
     tok = secrets.token_hex(24)
-    q("update users set sess_token=? where id=?", (tok, uid))
-    session.clear(); session["uid"] = uid; session["tok"] = tok
+    q("update users set sess_token=?, last_seen=localtimestamp where id=?", (tok, uid))
+    session.clear(); session["uid"] = uid; session["tok"] = tok; session["seen"] = time.time()
 
 def me():
     if "uid" not in session: return None
@@ -353,6 +361,8 @@ def gate():
     if u:
         if u.get("suspended"):
             session.clear(); flash("Your account is suspended. Please contact the admin.", "err"); return redirect(url_for("login"))
+        if not u.get("device_id") or request.cookies.get("gp_dev") != u["device_id"]:
+            session.clear(); flash("This account is linked to another device. Please log in again on your own device, or contact the admin.", "err"); return redirect(url_for("login"))
         if not u.get("sess_token") or session.get("tok") != u["sess_token"]:
             session.clear(); flash("This account was logged in on another device, so you were logged out here. Please log in again.", "err"); return redirect(url_for("login"))
         if now - session.get("seen", 0) > 240:
@@ -406,7 +416,8 @@ def register():
                     (f["name"].strip(), f["email"].strip().lower(), f["phone"].strip(), generate_password_hash(f["password"])), rid=True)
         except psycopg2.IntegrityError:
             flash("This email is already registered. Please log in.", "err"); return redirect(url_for("login"))
-        start_session(uid); flash("Account created successfully! Welcome aboard.", "ok"); return redirect(url_for("dashboard"))
+        start_session(uid); flash("Account created successfully! Welcome aboard.", "ok")
+        return link_device(redirect(url_for("dashboard")), uid)
     return render_template("auth.html", mode="register")
 
 @app.route("/login", methods=["GET", "POST"])
@@ -416,7 +427,11 @@ def login():
         if u and check_password_hash(u["pw"], request.form["password"]):
             if u.get("suspended"):
                 flash("Your account is suspended. Please contact the admin.", "err"); return render_template("auth.html", mode="login")
-            start_session(u["id"]); flash("Logged in successfully.", "ok"); return redirect(url_for("dashboard"))
+            if u.get("device_id") and request.cookies.get("gp_dev") != u["device_id"]:
+                flash("This account is linked to another device, so you cannot log in here. For security, one account works on one device only. Contact the admin if you changed your phone or computer.", "err")
+                return render_template("auth.html", mode="login")
+            start_session(u["id"]); flash("Logged in successfully.", "ok")
+            return link_device(redirect(url_for("dashboard")), u["id"])
         flash("Wrong email or password.", "err")
     return render_template("auth.html", mode="login")
 
@@ -889,7 +904,7 @@ def admin():
     pend_n = q("select count(*) n from payments where status='pending'", one=True)["n"]
     st = q("""select count(*) total, count(*) filter (where pay_status='approved') active, count(*) filter (where access='free') free,
               count(*) filter (where suspended) susp, count(*) filter (where last_seen > localtimestamp - interval '10 minutes') online from users""", one=True)
-    users = q("""select id,name,email,phone,pay_status,access,suspended,last_seen,
+    users = q("""select id,name,email,phone,pay_status,access,suspended,last_seen,(coalesce(device_id,'')<>'') as dev_linked,
                  coalesce(last_seen > localtimestamp - interval '10 minutes', false) as online from users order by last_seen desc nulls last, id desc""")
     ps = q("""select p.id,p.status,p.created,p.decided,(p.img is not null) as has_img,u.name,u.email,u.phone
               from payments p join users u on u.id=p.user_id order by p.id desc limit 100""")
@@ -910,10 +925,11 @@ def admin_act(pid, act):
 def admin_user(uid, act):
     if not session.get("admin"): abort(403)
     sql = {"suspend": "suspended=true", "unsuspend": "suspended=false",
-           "grant": "pay_status='approved', access='free', suspended=false", "revoke": "pay_status='none', access=''"}.get(act)
+           "grant": "pay_status='approved', access='free', suspended=false", "revoke": "pay_status='none', access=''",
+           "resetdevice": "device_id='', sess_token=''"}.get(act)
     if sql:
         q("update users set " + sql + " where id=?", (uid,))
-        flash({"suspend": "User suspended.", "unsuspend": "User un-suspended.", "grant": "Free access given.", "revoke": "Access removed."}[act], "ok")
+        flash({"suspend": "User suspended.", "unsuspend": "User un-suspended.", "grant": "Free access given.", "revoke": "Access removed.", "resetdevice": "Device link reset. The user can now log in once on a new device."}[act], "ok")
     return redirect(url_for("admin") + "#users")
 
 @app.route("/admin/settings", methods=["POST"])
