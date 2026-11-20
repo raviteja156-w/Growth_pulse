@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% block c %}
-<form method="post" enctype="multipart/form-data" class="g p-6 max-w-2xl mx-auto mt-4 space-y-3" onsubmit="var b=this.querySelector('button.btn');b.disabled=true;b.textContent='⏳ AI is preparing your plan…'">
+<form method="post" enctype="multipart/form-data" class="g p-6 max-w-2xl mx-auto mt-4 space-y-3" onsubmit="var b=this.querySelector('button.btn');b.disabled=true;var m={{ ['🔎 Step 1: finding professors’ notes on the web…','✅ Step 2: AI is checking and correcting them…','✍️ Step 3: writing your handwritten notes and plan…']|tojson|forceescape if track=='college' else ['⏳ AI is preparing your plan…']|tojson|forceescape }},i=0;b.textContent=m[0];setInterval(function(){i=Math.min(i+1,m.length-1);b.textContent=m[i]},18000)">
 <h2 class="text-2xl font-bold glow">{{ '🎓 New exam plan' if track=='college' else '🚀 New growth plan' }}</h2>
-{% if track=='college' %}<select class="in" name="exam"><option>Semester Exam</option><option>Internal Exam 1</option><option>Internal Exam 2</option><option>Internal Exam 3</option><option>Lab Exam</option></select><input class="in" name="title" placeholder="Subject name" required>
+{% if track=='college' %}<select class="in" name="exam"><option>Semester Exam</option><option>Internal Exam 1</option><option>Internal Exam 2</option><option>Internal Exam 3</option><option>Lab Exam</option></select><input class="in" name="title" list="subj" placeholder="Subject name" value="{{ pre }}" required><datalist id="subj">{% for x in subs %}<option value="{{ x }}">{% endfor %}</datalist>{% if subs %}<div class="text-xs text-slate-400 -mt-1">Pick one of your class subjects ({{ course_name }}) or type your own.</div>{% endif %}
 <div class="text-sm text-slate-300">What are you uploading?</div>
 <div class="grid sm:grid-cols-2 gap-2">
 <label class="g p-3 cursor-pointer"><input type="radio" name="qmode" value="syllabus" checked onchange="sync()" class="mr-2">📚 <b>Syllabus</b><div class="text-xs text-slate-400 ml-6">Topic-wise learning, day by day</div></label>
@@ -12,7 +12,9 @@
 {% if track=='college' %}<div id="pp"><label class="block text-sm text-slate-300">Previous question papers (optional, repeated topics get priority)</label><input class="in" type="file" name="papers" multiple accept=".pdf,.txt"></div>{% endif %}
 <label class="block text-sm text-slate-300">How many days do you want to train?</label><input class="in" type="number" name="days" min="1" max="120" value="15" required>
 <label class="block text-sm text-slate-300">🎯 Any specific question or topic you want explained first? (optional)</label><input class="in" name="firstq" placeholder="e.g. Explain Dijkstra's algorithm with an example">
-<button class="btn w-full">Build my plan</button><p class="text-xs text-slate-400">The AI may take up to a minute. Please keep this page open.</p></form>
+<label class="block text-sm text-slate-300">💭 Your concern (optional): what worries you about this subject? Notes will be adapted to it</label><input class="in" name="concern" maxlength="300" placeholder="e.g. derivations are hard for me / only 3 days left / weak in basics">
+{% if track=='college' %}<div class="g p-3 text-sm border-emerald-400">📚 <b>When you tap Build my plan:</b> we first look online for well-rated notes that professors and universities have posted for this subject. Then Groq AI checks them, fixes mistakes, adapts them to your concern and rewrites them as handwritten notes.</div>{% endif %}
+<button class="btn w-full">Build my plan</button><p class="text-xs text-slate-400">This can take up to two minutes. Please keep this page open.</p></form>
 <script>function sync(){var r=document.querySelector('input[name=qmode]:checked');if(!r)return;var q=r.value=='questions';
 document.getElementById('l1').textContent=q?'Upload the important questions file (PDF or text)':'Upload your syllabus (PDF or text from your computer)';
 document.getElementById('l2').textContent=q?'Or type / paste the important questions (one per line)':'Or type specific topics (required for internal and lab exams)';

@@ -1,4 +1,13 @@
-{% extends "base.html" %}{% block c %}
-<form method="post" class="g p-6 max-w-md mx-auto mt-4 space-y-3"><h2 class="text-2xl font-bold glow">Complete your profile</h2>
+{% extends "base.html" %}{% from "_acct.html" import pwform, devices %}{% block c %}
+<div class="max-w-md mx-auto mt-4">
+<form method="post" class="g p-6 space-y-3"><h2 class="text-2xl font-bold glow">Complete your profile</h2>
 <input class="in" name="name" value="{{me.name}}" placeholder="Name" required><input class="in" value="{{me.email}}" disabled><input class="in" name="phone" value="{{me.phone}}" placeholder="Contact" required>
-<input class="in" name="profession" value="{{me.profession}}" placeholder="Profession (e.g. B.Tech student)" required><input class="in" name="goal" value="{{me.goal}}" placeholder="What do you want to become?" required><button class="btn w-full">Save profile</button></form>{% endblock %}
+<input class="in" name="profession" value="{{me.profession}}" placeholder="Profession (e.g. B.Tech student)" required><input class="in" name="goal" value="{{me.goal}}" placeholder="What do you want to become?" required><button class="btn w-full">Save profile</button></form>
+
+<section class="g p-4 mt-4"><h3 class="font-bold">🏫 My class</h3>
+{% if my_class %}<div class="mt-1">{{ my_class.course }} <span class="text-xs text-slate-400">· code {{ my_class.code }}</span></div>
+<div class="text-sm text-slate-300">Faculty: {{ my_class.faculty_name or '—' }}</div><p class="text-xs text-slate-400 mt-1">🔒 Your class was set when you registered and cannot be changed.</p>
+{% else %}<p class="text-sm text-slate-300">You are not in a class yet. Enter the class code from your faculty. <b class="text-amber-300">You can do this only once; it cannot be changed afterwards.</b></p>
+<form method="post" action="{{ url_for('join_class') }}" class="flex gap-2 mt-2"><input class="in uppercase tracking-widest" name="class_code" placeholder="Class code" maxlength="10" required><button class="btn">Join</button></form>{% endif %}</section>
+
+{{ pwform() }}{{ devices(devs, cur, maxdev) }}</div>{% endblock %}

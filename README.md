@@ -152,3 +152,17 @@ Not stored: the original uploaded syllabus files (only their text is kept) and h
 | Plan takes long to build | Normal. It searches the web first, which can take up to about 2 minutes. Keep the page open |
 | Old courses have no web research | Research is added only to courses created after the update. Create a new course |
 | Lesson not clear | Open the lesson and tap "Explain this lesson again" |
+
+---
+
+## 👩‍🏫 Faculty, classes and devices (new)
+
+- **Faculty sign-up** (`/faculty/register`): name + email. A password is generated and **emailed**; log in with name or email. Change it on the faculty dashboard. `Forgot password` emails a new one.
+- After the first login faculty add the **courses** they teach and the **subjects** (with an add button). Each course gets a **class code**; the dashboard shows the code, a sign-up link and the students.
+- **Student sign-up** (`/register`): name, email, contact, class code, password + confirm. The class is fixed at registration and cannot be changed. Students who registered earlier can enter a code once from Profile.
+- **Two devices per account** (students and faculty). A device is a browser with the `gp_dev` cookie. Users can remove an old device under Profile / Dashboard → My devices; the admin can reset all devices.
+- **Build plan**: finds well-rated notes posted by professors/universities (Groq web search, dead links dropped), then Groq checks and corrects them, adapts them to the student's concern, and writes handwritten-style notes (`/course/<id>/notes`). Lessons, tests and doubts use these notes as the correct facts.
+- **Doubts** (everywhere) get the student's current course, day, weak topics and notes, and end with a `Link to your topic:` line.
+
+### New environment variables
+`BREVO_API_KEY` + `MAIL_FROM` (or `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`), `MAX_DEVICES` (default 2), optional `SEARCH_MODEL`.

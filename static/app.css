@@ -42,6 +42,7 @@ input[type=file]::file-selector-button{background:#1e3a8a;color:#e2e8f0;border:0
 .paper .ln{white-space:pre-wrap;min-height:var(--lh)}
 .paper .stp{font-weight:700;color:#1d4ed8}
 .paper .hd{font-weight:700;color:#9a3412}
+.paper .lk{font-weight:700;color:#6d28d9;border-top:2px dashed #c4b5fd;margin-top:.3rem}
 .paper .eq{padding-left:1.6rem}
 .paper .ans{font-weight:700;color:#047857;text-decoration:underline double #047857;text-underline-offset:4px}
 @media(min-width:640px){.paper{--mg:3.2rem;font-size:1.25rem;padding-right:1.4rem}}

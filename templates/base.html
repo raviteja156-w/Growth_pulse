@@ -8,8 +8,9 @@
 <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
 <nav class="flex items-center justify-between px-4 md:px-10 py-3 md:py-4 flex-wrap gap-2 max-w-6xl mx-auto">
 <a href="/" class="text-xl md:text-2xl font-bold glow"><span class="spin">💗</span> GrowthPulse</a>
-<div class="navlinks"><button id="gp-mute" type="button" class="text-xl px-2" aria-label="Toggle sound">🔊</button>{% if me %}<a href="{{ url_for('dashboard') }}">Dashboard</a><a href="{{ url_for('doubt') }}">Doubts</a><a href="{{ url_for('profile') }}">Profile</a><a href="{{ url_for('logout') }}" class="text-cyan-300">Logout</a>
-{% else %}<a href="{{ url_for('login') }}">Login</a><a class="btn" href="{{ url_for('register') }}">Get started</a>{% endif %}</div></nav>
+<div class="navlinks"><button id="gp-mute" type="button" class="text-xl px-2" aria-label="Toggle sound">🔊</button>{% if me and faculty %}<a href="{{ url_for('faculty_home') }}">Dashboard</a><a href="{{ url_for('faculty_class_new') }}">Add course</a><a href="{{ url_for('faculty_home') }}#password">Password</a><a href="{{ url_for('logout') }}" class="text-cyan-300">Logout</a>
+{% elif me %}<a href="{{ url_for('dashboard') }}">Dashboard</a><a href="{{ url_for('doubt') }}">Doubts</a><a href="{{ url_for('profile') }}">Profile</a><a href="{{ url_for('logout') }}" class="text-cyan-300">Logout</a>
+{% else %}<a href="{{ url_for('login') }}">Student login</a><a href="{{ url_for('flogin') }}">Faculty</a><a class="btn" href="{{ url_for('register') }}">Get started</a>{% endif %}</div></nav>
 <div class="fixed top-3 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md space-y-2">
 {% for c,m in get_flashed_messages(with_categories=true) %}<div class="toast g px-4 py-3 text-sm {{ 'border-emerald-400' if c=='ok' else 'border-rose-400' }}" onclick="this.remove()">{{ '✅' if c=='ok' else '⚠️' }} {{ m }}</div>{% endfor %}</div>
 <main class="px-4 md:px-10 pb-16 max-w-6xl mx-auto">{% block c %}{% endblock %}</main>

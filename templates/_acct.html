@@ -1,0 +1,20 @@
+{% macro pwform(id='password') %}
+<section id="{{ id }}" class="g p-4 md:p-5 mt-6">
+<h3 class="font-bold text-lg">🔑 Change password</h3>
+<form method="post" action="{{ url_for('change_password') }}" class="mt-2 grid md:grid-cols-3 gap-2">
+<input class="in" type="password" name="current" placeholder="Current password" autocomplete="current-password" required>
+<input class="in" type="password" name="new" placeholder="New password (min 6)" minlength="6" autocomplete="new-password" required>
+<input class="in" type="password" name="confirm" placeholder="Confirm new password" minlength="6" autocomplete="new-password" required>
+<button class="btn md:col-span-3 md:w-fit">Save new password</button></form>
+<p class="text-xs text-slate-400 mt-2">Your other devices will be logged out after you change it.</p></section>
+{% endmacro %}
+
+{% macro devices(devs, cur, maxdev) %}
+<section id="devices" class="g p-4 md:p-5 mt-6">
+<h3 class="font-bold text-lg">📱 My devices <span class="text-sm text-slate-400">({{ devs|length }} of {{ maxdev }} used)</span></h3>
+<p class="text-xs text-slate-400">You can log in on {{ maxdev }} devices only. Remove one here if you changed your phone or computer.</p>
+<div class="mt-2 space-y-2">{% for d in devs %}<div class="flex items-center justify-between gap-2 flex-wrap rounded-lg bg-slate-900/50 p-3">
+<div><b>{{ d.label or 'Device' }}</b> {% if d.device_id==cur %}<span class="text-emerald-300 text-xs">● this device</span>{% endif %}<div class="text-xs text-slate-400">last active {{ d.last_seen.strftime('%d %b, %I:%M %p') if d.last_seen else 'never' }}</div></div>
+{% if d.device_id!=cur %}<form method="post" action="{{ url_for('device_remove',did=d.id) }}" onsubmit="return confirm('Remove this device?')"><button class="g px-3 py-1 text-xs border-rose-400">Remove</button></form>{% endif %}</div>
+{% else %}<p class="text-sm text-slate-400">No devices yet.</p>{% endfor %}</div></section>
+{% endmacro %}

@@ -1,7 +1,51 @@
 {% extends "base.html" %}{% block c %}
-<form method="post" class="g p-6 max-w-md mx-auto mt-6 space-y-3">
-<h2 class="text-2xl font-bold glow">{{ 'Create your account' if mode=='register' else 'Welcome back' }}</h2>
-{% if mode=='register' %}<input class="in" name="name" placeholder="Full name" required><input class="in" name="phone" placeholder="Contact number" required>{% endif %}
-<input class="in" type="email" name="email" placeholder="Email" required><input class="in" type="password" name="password" placeholder="Password" minlength="6" required>
-<button class="btn w-full">{{ 'Sign up' if mode=='register' else 'Log in' }}</button>
-<p class="text-sm text-slate-300">{% if mode=='register' %}Already registered? <a class="text-cyan-300" href="{{ url_for('login') }}">Log in</a>{% else %}New here? <a class="text-cyan-300" href="{{ url_for('register') }}">Create account</a>{% endif %}</p></form>{% endblock %}
+{% set fac = mode in ('flogin','fregister') %}
+<div class="max-w-md mx-auto mt-6">
+{% if mode in ('login','flogin') %}
+<div class="grid grid-cols-2 gap-2 mb-3 text-center text-sm"><a href="{{ url_for('login') }}" class="g py-2 {{ '' if fac else 'border-cyan-300 text-cyan-300 font-bold' }}">🎓 Student login</a><a href="{{ url_for('flogin') }}" class="g py-2 {{ 'border-cyan-300 text-cyan-300 font-bold' if fac }}">👩‍🏫 Faculty login</a></div>
+{% elif mode in ('register','fregister') %}
+<div class="grid grid-cols-2 gap-2 mb-3 text-center text-sm"><a href="{{ url_for('register') }}" class="g py-2 {{ '' if fac else 'border-cyan-300 text-cyan-300 font-bold' }}">🎓 Student sign-up</a><a href="{{ url_for('fregister') }}" class="g py-2 {{ 'border-cyan-300 text-cyan-300 font-bold' if fac }}">👩‍🏫 Faculty sign-up</a></div>
+{% endif %}
+
+<form method="post" class="g p-6 space-y-3" autocomplete="on">
+{% if mode=='register' %}
+<h2 class="text-2xl font-bold glow">Create your student account</h2>
+<input class="in" name="name" placeholder="Full name" value="{{ f.get('name','') if f }}" required>
+<input class="in" type="email" name="email" placeholder="Email" value="{{ f.get('email','') if f }}" required>
+<input class="in" type="tel" inputmode="numeric" name="phone" placeholder="Contact number" value="{{ f.get('phone','') if f }}" required>
+<div><input class="in uppercase tracking-widest" name="class_code" placeholder="Class code (from your faculty)" maxlength="10" value="{{ (f.get('class_code','') if f else '') or code }}" required>
+<p class="text-xs text-amber-300 mt-1">⚠️ You join this class for good. It cannot be changed later, so check the code with your faculty.</p></div>
+<input class="in" type="password" name="password" placeholder="Create password (min 6 characters)" minlength="6" autocomplete="new-password" required>
+<input class="in" type="password" name="confirm" placeholder="Confirm password" minlength="6" autocomplete="new-password" required>
+<button class="btn w-full">Sign up</button>
+<p class="text-sm text-slate-300">Already registered? <a class="text-cyan-300" href="{{ url_for('login') }}">Log in</a></p>
+
+{% elif mode=='login' %}
+<h2 class="text-2xl font-bold glow">Welcome back</h2>
+<input class="in" type="email" name="email" placeholder="Email" required><input class="in" type="password" name="password" placeholder="Password" required>
+<button class="btn w-full">Log in</button>
+<p class="text-sm text-slate-300">New here? <a class="text-cyan-300" href="{{ url_for('register') }}">Create account</a> · <a class="text-cyan-300" href="{{ url_for('forgot') }}">Forgot password?</a></p>
+<p class="text-xs text-slate-400">One account works on 2 devices at most.</p>
+
+{% elif mode=='flogin' %}
+<h2 class="text-2xl font-bold glow">Faculty login</h2>
+<input class="in" name="email" placeholder="Your name or email" autocomplete="username" required><input class="in" type="password" name="password" placeholder="Password (sent to your email)" required>
+<button class="btn w-full">Log in</button>
+<p class="text-sm text-slate-300">New faculty? <a class="text-cyan-300" href="{{ url_for('fregister') }}">Register</a> · <a class="text-cyan-300" href="{{ url_for('forgot') }}">Forgot password?</a></p>
+<p class="text-xs text-slate-400">One account works on 2 devices at most.</p>
+
+{% elif mode=='fregister' %}
+<h2 class="text-2xl font-bold glow">Faculty registration</h2>
+<input class="in" name="name" placeholder="Your name" required><input class="in" type="email" name="email" placeholder="Your email" required>
+<p class="text-sm text-slate-300">📧 Your password will be <b>sent to this email</b>. After you log in you can change it on your dashboard.</p>
+<button class="btn w-full">Register &amp; email my password</button>
+<p class="text-sm text-slate-300">Already registered? <a class="text-cyan-300" href="{{ url_for('flogin') }}">Faculty login</a></p>
+
+{% elif mode=='forgot' %}
+<h2 class="text-2xl font-bold glow">Forgot password</h2>
+<input class="in" type="email" name="email" placeholder="Your registered email" required>
+<p class="text-sm text-slate-300">We will email you a new password. Your old password stops working.</p>
+<button class="btn w-full">Email me a new password</button>
+<p class="text-sm text-slate-300"><a class="text-cyan-300" href="{{ url_for('login') }}">Back to login</a></p>
+{% endif %}
+</form></div>{% endblock %}

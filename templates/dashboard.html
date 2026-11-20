@@ -1,6 +1,9 @@
 {% extends "base.html" %}{% block c %}
 <h2 class="text-3xl font-bold glow">Hi {{ me.name.split()[0] }} 👋</h2>
 {% if me.pay_status!='approved' %}<a href="{{ url_for('pay') }}" class="g block p-4 mt-4 border-amber-400 hv">🔒 Features are locked. {% if me.pay_status=='pending' %}Payment is waiting for admin approval.{% elif me.pay_status=='rejected' %}Your payment was rejected, please upload a clear screenshot again.{% else %}Pay ₹50 once to unlock everything.{% endif %} <b class="text-cyan-300">Open payment page</b></a>{% endif %}
+{% if my_class %}<div class="g p-4 mt-4 border-violet-400"><div class="mini text-violet-300">🏫 My class</div><div class="font-bold">{{ my_class.course }}</div><div class="text-xs text-slate-400">Faculty: {{ my_class.faculty_name or '—' }}</div>
+{% if subs %}<div class="text-sm text-slate-300 mt-2">Tap a subject to build its plan:</div><div class="flex flex-wrap gap-2 mt-1">{% for s in subs %}<a class="g hv px-3 py-1 text-sm" href="{{ url_for('new',track='college',subject=s) }}">{{ s }}</a>{% endfor %}</div>{% endif %}</div>
+{% elif me.role!='faculty' %}<a href="{{ url_for('profile') }}" class="g block p-4 mt-4 border-amber-400 hv">🏫 You are not in a class yet. <b class="text-cyan-300">Enter your class code</b></a>{% endif %}
 <div class="grid md:grid-cols-2 gap-5 mt-6">
 <a href="{{ url_for('new',track='college') }}" class="g hv p-7"><div class="text-6xl float">🎓</div><h3 class="text-2xl font-bold mt-2">Exams</h3><p class="text-slate-300">Internals, lab and semester exams from your syllabus.</p></a>
 <a href="{{ url_for('new',track='personal') }}" class="g hv p-7"><div class="text-6xl float" style="animation-delay:.6s">🚀</div><h3 class="text-2xl font-bold mt-2">Personal growth</h3><p class="text-slate-300">Train toward the person you want to become.</p></a></div>

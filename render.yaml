@@ -3,7 +3,7 @@ services:
     name: growthpulse
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --timeout 240 --workers 2 --threads 4
+    startCommand: gunicorn app:app --timeout 300 --workers 2 --threads 4
     envVars:
       - {key: PYTHON_VERSION, value: 3.11.9}
       - {key: SECRET_KEY, generateValue: true}
@@ -12,3 +12,6 @@ services:
       - {key: ADMIN_PASS, sync: false}
       - {key: GROQ_API_KEY, sync: false}
       - {key: AI_MODEL, value: openai/gpt-oss-120b}
+      - {key: BREVO_API_KEY, sync: false}   # sends faculty passwords by email (Render free plan blocks SMTP)
+      - {key: MAIL_FROM, sync: false}       # a sender address verified in Brevo
+      - {key: MAX_DEVICES, value: "2"}
