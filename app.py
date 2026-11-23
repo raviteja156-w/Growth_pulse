@@ -183,8 +183,9 @@ def send_mail(to, subject, body):
     if key and frm:
         r = requests.post("https://api.brevo.com/v3/smtp/email", headers={"api-key": key, "accept": "application/json", "content-type": "application/json"},
                           json={"sender": {"name": name, "email": frm}, "to": [{"email": to}], "subject": subject, "textContent": body}, timeout=20)
-        if not r.ok: raise RuntimeError(f"email service said {r.status_code}: {r.text[:150]}")
-        return
+        print("mail: brevo", r.status_code, r.text[:200])
+        if not r.ok: raise RuntimeError(f"email service said {r.status_code}: {r.text[:200]}")
+        return r.text[:120]
     if host:
         msg = EmailMessage(); msg["From"] = f"{name} <{frm or os.getenv('SMTP_USER', '')}>"; msg["To"] = to; msg["Subject"] = subject; msg.set_content(body)
         port = int(os.getenv("SMTP_PORT", "587"))
@@ -192,7 +193,7 @@ def send_mail(to, subject, body):
         try:
             if port != 465: s.starttls()
             if os.getenv("SMTP_USER"): s.login(os.getenv("SMTP_USER"), os.getenv("SMTP_PASS", ""))
-            s.send_message(msg)
+            s.send_message(msg); print("mail: smtp sent to", to)
         finally:
             try: s.quit()
             except Exception: pass
@@ -624,7 +625,7 @@ def mind(uid, cid=None):
     return s
 
 PRICE = int(os.getenv("PRICE", "50"))
-OPEN_EP = {"static", "welcome", "demo_done", "adminlogin", "adminlogout", "admin", "admin_act", "admin_user", "admin_settings", "shot", "bot"}
+OPEN_EP = {"static", "welcome", "demo_done", "adminlogin", "adminlogout", "admin", "admin_act", "admin_user", "admin_settings", "admin_testmail", "shot", "bot"}
 _last_purge = [0.0]
 
 def purge():
@@ -1435,11 +1436,30 @@ def admin_user(uid, act):
     sql = {"suspend": "suspended=true", "unsuspend": "suspended=false",
            "grant": "pay_status='approved', access='free', suspended=false", "revoke": "pay_status='none', access=''",
            "resetdevice": "device_id=''"}.get(act)
+    if act == "newpass":      # works even when email is broken: the admin sees the password and passes it on
+        u = q("select name,email from users where id=?", (uid,), one=True)
+        if not u: abort(404)
+        pw = temp_password(); q("update users set pw=? where id=?", (generate_password_hash(pw), uid)); q("update devices set sess_token='' where user_id=?", (uid,))
+        flash(f"New password for {u['name']} ({u['email']}): {pw}  (give it to them; they should change it after login)", "ok")
+        return redirect(url_for("admin") + "#users")
     if sql:
         q("update users set " + sql + " where id=?", (uid,))
         if act == "resetdevice": q("delete from devices where user_id=?", (uid,))
         flash({"suspend": "User suspended.", "unsuspend": "User un-suspended.", "grant": "Free access given.", "revoke": "Access removed.", "resetdevice": "All devices removed. The user can log in again on up to 2 devices."}[act], "ok")
     return redirect(url_for("admin") + "#users")
+
+@app.route("/admin/testmail", methods=["POST"])
+def admin_testmail():
+    """Sends a test email and shows the real result, so email problems can be found."""
+    if not session.get("admin"): abort(403)
+    to = request.form.get("to", "").strip().lower()
+    if not EMAIL_RE.match(to): flash("Enter a valid email address for the test.", "err")
+    else:
+        try:
+            res = send_mail(to, "GrowthPulse test email", "This is a test email from GrowthPulse. If you can read this, email sending works.")
+            flash(f"Email accepted by the mail service for {to} ({res or 'ok'}). If it does not arrive, check Spam and your Brevo sender/logs.", "ok")
+        except Exception as e: flash(f"Email FAILED: {str(e)[:300]}", "err")
+    return redirect(url_for("admin"))
 
 @app.route("/admin/settings", methods=["POST"])
 def admin_settings():

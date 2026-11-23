@@ -12,7 +12,7 @@
 {% elif me %}<a href="{{ url_for('dashboard') }}">Dashboard</a><a href="{{ url_for('doubt') }}">Doubts</a><a href="{{ url_for('profile') }}">Profile</a><a href="{{ url_for('logout') }}" class="text-cyan-300">Logout</a>
 {% else %}<a href="{{ url_for('login') }}">Student login</a><a href="{{ url_for('flogin') }}">Faculty</a><a class="btn" href="{{ url_for('register') }}">Get started</a>{% endif %}</div></nav>
 <div class="fixed top-3 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md space-y-2">
-{% for c,m in get_flashed_messages(with_categories=true) %}<div class="toast g px-4 py-3 text-sm {{ 'border-emerald-400' if c=='ok' else 'border-rose-400' }}" onclick="this.remove()">{{ '✅' if c=='ok' else '⚠️' }} {{ m }}</div>{% endfor %}</div>
+{% for c,m in get_flashed_messages(with_categories=true) %}<div class="toast g px-4 py-3 text-sm {{ 'keep' if ('New password for' in m or 'FAILED' in m or 'accepted by' in m) }} {{ 'border-emerald-400' if c=='ok' else 'border-rose-400' }}" onclick="this.remove()">{{ '✅' if c=='ok' else '⚠️' }} {{ m }}</div>{% endfor %}</div>
 <main class="px-4 md:px-10 pb-16 max-w-6xl mx-auto">{% block c %}{% endblock %}</main>
 <script>
 async function dlPage(sel,name){var el=document.querySelector(sel);if(!el)return;var c=el.cloneNode(true);
@@ -23,4 +23,4 @@ var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([h],{type:
 </script>
 <script src="{{ url_for('static',filename='sound.js') }}"></script>
 {% include "_bot.html" %}
-<script>setTimeout(()=>document.querySelectorAll('.toast').forEach(e=>e.remove()),6000)</script></body></html>
+<script>setTimeout(()=>document.querySelectorAll('.toast:not(.keep)').forEach(e=>e.remove()),6000)</script></body></html>

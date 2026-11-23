@@ -34,11 +34,15 @@
 <td class="p-2"><div class="flex gap-2 flex-wrap">
 {% if u.suspended %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='unsuspend') }}"><button class="btn !py-1 !min-h-0 text-xs">Un-suspend</button></form>
 {% else %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='suspend') }}" onsubmit="return confirm('Suspend {{ u.name|e }}?')"><button class="g px-3 py-1 text-xs border-rose-400">Suspend</button></form>{% endif %}
+<form method="post" action="{{ url_for('admin_user',uid=u.id,act='newpass') }}" onsubmit="return confirm('Set a NEW password for this user? It will be shown to you on screen.')"><button class="g px-3 py-1 text-xs border-cyan-400">🔑 New password</button></form>
 {% if u.dev_count %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='resetdevice') }}" onsubmit="return confirm('Remove all devices of this user? They can then log in again on up to 2 devices.')"><button class="g px-3 py-1 text-xs border-amber-400">📱 Reset devices ({{ u.dev_count }}/2)</button></form>{% endif %}
 {% if u.pay_status=='approved' %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='revoke') }}" onsubmit="return confirm('Remove access for {{ u.name|e }}?')"><button class="g px-3 py-1 text-xs">Remove access</button></form>
 {% else %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='grant') }}"><button class="g px-3 py-1 text-xs border-emerald-400">🎁 Give free access</button></form>{% endif %}</div></td></tr>
 {% else %}<tr><td class="p-3 text-slate-400" colspan="5">No users yet.</td></tr>{% endfor %}</tbody></table></div>
 <p class="text-xs text-slate-500 mt-2">🟢 online = active in the last 10 minutes. 📱 Reset devices = clears a user's devices so they can log in on up to 2 new phones/computers (every account works on 2 devices at most).</p>
+
+<h3 class="text-xl font-bold mt-8 mb-2">📧 Test email</h3>
+<form method="post" action="{{ url_for('admin_testmail') }}" class="g p-3 flex gap-2 flex-wrap"><input class="in flex-1 min-w-[200px]" type="email" name="to" placeholder="Send a test email to…" required><button class="btn">Send test</button></form>
 
 <h3 class="text-xl font-bold mt-8 mb-2">🏫 Classes</h3>
 <div class="g p-2 overflow-x-auto"><table class="w-full text-sm min-w-[560px]"><thead class="text-slate-400 text-left"><tr><th class="p-2">Course</th><th class="p-2">Code</th><th class="p-2">Faculty</th><th class="p-2">Students</th></tr></thead><tbody>
