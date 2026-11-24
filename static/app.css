@@ -58,3 +58,5 @@ details>summary::-webkit-details-marker{display:none}
  main{padding-left:.9rem!important;padding-right:.9rem!important}
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important}}
+
+.paper a.lnk{color:#1d4ed8;text-decoration:underline;word-break:break-all}

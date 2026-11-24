@@ -318,7 +318,10 @@ def ink(text):
         elif re.match(r"(?i)^link to your topic\s*:", s): cls += " lk"
         elif re.match(r"(?i)^(given|to find|find|formula|solution|check|verify|proof|aim|note|definition|example|diagram|remember|real life|key points|why)\s*:", s): cls += " hd"
         elif s[0] in "=≈": cls += " eq"
-        out.append('<div class="%s">%s</div>' % (cls, escape(l.rstrip())))
+        if re.match(r"(?i)^sources used\s*:", s): cls += " hd"
+        h = str(escape(l.rstrip()))
+        h = re.sub(r"(https?://[^\s<]+?)([.,;)]*)(?=\s|$)", r'<a href="\1" target="_blank" rel="noopener noreferrer" class="lnk">\1</a>\2', h)
+        out.append('<div class="%s">%s</div>' % (cls, h))
     return Markup("".join(out))
 def ans_html(msg):
     """Every tutor answer is shown as handwritten notes on ruled paper."""
@@ -330,7 +333,7 @@ def pp(text):
     return Markup('<div class="paper">%s</div>' % ink(text))
 app.add_template_filter(ink, "ink"); app.add_template_filter(ans_html, "ans"); app.add_template_filter(pp, "pp")
 
-NOTE_STYLE = """HANDWRITTEN NOTES STYLE (very important): write exactly like a good teacher writing neat class notes by hand for a student. One short idea per line, every line separated by a newline. Begin with the direct answer or definition in one line. Then explain step by step in very simple words. Always include one small everyday EXAMPLE (start that line with 'Example:'). If useful, describe a tiny diagram in words (start that line with 'Diagram:'). Finish with one line starting 'Remember:' that holds the key points to memorise. Never write long paragraphs."""
+NOTE_STYLE = """HANDWRITTEN NOTES STYLE (very important): write exactly like a good teacher writing neat class notes by hand for a student. One short idea per line, every line separated by a newline. Begin with the direct answer or definition in one line. Then explain step by step in very simple words. Always include one small everyday EXAMPLE (start that line with 'Example:'). You cannot draw pictures, so never mention or describe diagrams. Finish with one line starting 'Remember:' that holds the key points to memorise. Never write long paragraphs."""
 
 
 DEPTH_STYLE = """DEPTH RULE (very important): the student must understand the WHOLE concept from the very beginning to full depth, never a thin or partial answer.
@@ -350,7 +353,8 @@ Explain like a patient teacher to a beginner, with everyday examples.
 {NOTE_STYLE}
 {STYLE}
 {MATH_STYLE}
-{LINK_RULE if focus else ''}""", 5500, imgs or None)
+{LINK_RULE if focus else ''}
+{SHORT_RULE}""", 5500, imgs or None)
 
 def qctx(c):
     if (c.get("qmode") or "syllabus") != "questions": return ""
@@ -506,7 +510,7 @@ def find_notes(subject, course_name, exam, topic_names, concern="", dbg=None, us
     prompt = f"""Use web search. Find the best and most trusted LECTURE NOTES / STUDY NOTES for the subject '{subject}' ({course_name or 'college course'}, {exam}) that were written or posted by PROFESSORS or lecturers: university course pages and PDFs (.edu, .ac.in, .ac.uk), NPTEL, MIT OpenCourseWare, IIT / NIT / university departments and similar. Prefer notes that are highly rated, widely recommended or widely used by students and teachers.
 Topics the student needs: {', '.join(topic_names)[:1200] or subject}.
 {('The student says: ' + concern[:300]) if concern else ''}
-Give up to 5 sources, each exactly in this format:
+Give 4 or 5 different sources (at least 3 if they exist), from different universities or professors so they can be compared. Each exactly in this format:
 SOURCE: title of the notes
 URL: the full real web address you found
 POSTED BY: professor or university
@@ -538,7 +542,7 @@ Only list pages you really found; never guess a link. If you found no professor 
     cand = [dict(s, trust=trust_of(s["url"])) for s, ok in zip(cand, alive) if ok]
     order = {"university": 0, "open course": 1, "web": 2}
     cand = sorted(cand, key=lambda s: order[s["trust"]])[:5]     # professor / university pages first
-    raw = "\n---\n".join(f"SOURCE: {s['title']} ({s['by'] or s['trust']}) {s['url']}\n{s['notes']}" for s in cand if s["notes"])[:11000]
+    raw = "\n---\n".join(f"SOURCE {i}: {s['title']} ({s['by'] or s['trust']}) {s['url']}\n{s['notes']}" for i, s in enumerate(cand, 1) if s["notes"])[:11000]
     out = [{k_: s[k_] for k_ in ("title", "url", "by", "why", "trust")} for s in cand]
     if out and use_cache:
         try: q("insert into notes_cache(key,sources,raw) values(?,?,?) on conflict(key) do update set sources=excluded.sources, raw=excluded.raw, created=localtimestamp", (ckey, json.dumps(out), raw))
@@ -556,6 +560,7 @@ NOTES COLLECTED FROM PROFESSORS' WEB PAGES (they can contain errors, typos or of
 {web[:9000]}
 
 YOUR JOB
+0. COMPARE the numbered sources with each other. Trust what two or more sources agree on. Where sources disagree, decide the correct version with your own expert knowledge and report it in "corrections" (for example: "Source 2 said X, sources 1 and 3 say Y, Y is correct"). For each topic list in "sources" the numbers of the sources you really used.
 1. Check every definition, formula, step and example against your own expert knowledge. Fix every mistake. Throw away anything wrong, unclear or not about the topics.
 2. If the web notes miss something needed to understand the topic fully and correctly, add it. Never invent facts, numbers, names or links. If you are not sure about a line, leave it out and list it in "unsure".
 3. Adapt to this student: beginner-friendly words, and extra care and examples where their concern or weak topics need it.
@@ -563,7 +568,7 @@ YOUR JOB
 {NOTE_STYLE}
 {STYLE}
 {MATH_STYLE}
-Return JSON only: {{"topics":[{{"name":"exact topic name","notes":"lines separated by newline characters (14 to 30 lines)","confidence":"high or medium or low"}}],"corrections":["short sentence: what was wrong or missing in the web notes and how you fixed it"],"unsure":["point the student should confirm with their teacher"]}}""", 6500, effort="medium")
+Return JSON only: {{"topics":[{{"name":"exact topic name","notes":"lines separated by newline characters (14 to 30 lines)","confidence":"high or medium or low","sources":[1,2]}}],"corrections":["short sentence: what was wrong or missing in the web notes and how you fixed it"],"unsure":["point the student should confirm with their teacher"]}}""", 6500, effort="medium")
 
 def make_notes(title, course_name, exam, topics, concern="", state="", found=None):
     """Whole pipeline for a plan: web search (unless `found` is given) -> Groq verification. Returns (notes_json, meta_json, raw_text). Raises if nothing usable came back."""
@@ -581,10 +586,12 @@ def make_notes(title, course_name, exam, topics, concern="", state="", found=Non
         if not isinstance(o, dict): continue
         for t in (o.get("topics") or []):
             if isinstance(t, dict) and str(t.get("notes", "")).strip() and len(str(t["notes"])) > 40:
-                items.append(dict(name=str(t.get("name") or "").strip()[:120], notes=str(t["notes"]).strip(), confidence=str(t.get("confidence") or "medium").lower()[:8]))
+                nums = [int(x) for x in (t.get("sources") or []) if str(x).isdigit() and 1 <= int(x) <= len(sources)]
+                items.append(dict(name=str(t.get("name") or "").strip()[:120], notes=str(t["notes"]).strip(), confidence=str(t.get("confidence") or "medium").lower()[:8],
+                                  links=[{"title": sources[n - 1]["title"], "url": sources[n - 1]["url"]} for n in sorted(set(nums))]))
         corr += [str(x) for x in (o.get("corrections") or []) if str(x).strip()]; unsure += [str(x) for x in (o.get("unsure") or []) if str(x).strip()]
     if not items: raise RuntimeError("AI returned no notes")
-    meta = dict(status="verified" if sources else "ai_checked", sources=sources, corrections=corr[:12], unsure=unsure[:10], date=time.strftime("%d %b %Y"))
+    meta = dict(status="verified" if sources else "ai_checked", sources=sources, compared=len(sources), corrections=corr[:12], unsure=unsure[:10], date=time.strftime("%d %b %Y"))
     return json.dumps(items), json.dumps(meta), raw
 
 def notes_list(c):
@@ -610,7 +617,19 @@ def notes_rule(c, names, limit=4500):
     return ("VERIFIED NOTES (professor notes from the web, checked and corrected; treat them as the correct facts, formulas and definitions and build on them):\n" + t) if t else ""
 
 # ---------------- link every AI answer to what the student is studying right now ----------------
+SHORT_RULE = """OVERRIDING RULE (read last, beats every rule above): first look at what the student actually asked. If they want something short (one line, only the name, only the answer, yes/no, one fact), reply with ONLY that, in one single line. In that case write NO definition, NO steps, NO example, NO diagram, NO 'Remember:' line and NO 'Link to your topic:' line. Otherwise answer fully as described above. Never invent websites, URLs, book names, authors or facts. If asked for the source or website, give only what is listed under SOURCES in the study context; if nothing is listed say: No website. These notes were written and checked by AI."""
+
 LINK_RULE = """LINK TO THE STUDENT'S CURRENT TOPIC (very important): use the CURRENT STUDY CONTEXT above. Answer the doubt fully first. Then make it relatable to their own study: show where this doubt fits in the topic they are on now, use an example taken from that current topic, and if it touches one of their weak topics in the test analysis say so and how to improve it. After the 'Remember:' line add one last line that starts with 'Link to your topic:' and ties the answer to their current topic or weak area in one or two sentences. If the doubt is really unrelated to the current topic, answer it completely and say so honestly on that line; never force a false connection and never invent scores."""
+
+def src_footer(u, cid=None):
+    """Exact links the answer's study material came from (taken from the saved notes, never written by the AI)."""
+    if not u or is_faculty(u): return ""
+    cid = cid or u.get("cur_cid")
+    c = q("select notes_meta from courses where id=? and user_id=?", (cid, u["id"]), one=True) if cid else None
+    if not c: return ""
+    srcs = notes_meta(c).get("sources") or []
+    if not srcs: return "\n\nSources used: none. These notes were written and checked by AI, no website."
+    return "\n\nSources used:\n" + "\n".join(f"{i}. {x.get('title', '')[:80]} - {x.get('url', '')}" for i, x in enumerate(srcs[:5], 1))
 
 def touch(c, n=None):
     """Remember which course/day the student is on, so doubts asked anywhere in the app can be linked to it."""
@@ -641,6 +660,8 @@ def focus_ctx(u, cid=None, day=None):
     names = focus or [t.get("name", "") for t in json.loads(c["topics"] or "[]")[:3]]
     nt = notes_rule(c, names, 2500)
     if nt: p.append(nt)
+    srcs = notes_meta(c).get("sources") or []
+    p.append("SOURCES of the verified notes (the only real ones): " + ("; ".join(f"{x.get('title','')} - {x.get('url','')}" for x in srcs[:5]) if srcs else "none (the notes were written and checked by AI, no website)"))
     return "\n".join(p)
 
 def images_from(files):
@@ -1086,6 +1107,7 @@ def job_runner(jid, p):
         q("update jobs set status='running', step='Starting…' where id=?", (jid,))
         cid, msg, warn = run_build(p, step)
         q("update jobs set status='done', course_id=?, msg=?, warn=?, step='Done' where id=?", (cid, msg, warn, jid))
+        q("update users set cur_cid=?, cur_day=null where id=?", (cid, p["uid"]))      # doubts asked right after building already know this course
     except BuildError as e:
         q("update jobs set status='error', msg=? where id=?", (str(e)[:400], jid))
     except Exception as e:
@@ -1287,8 +1309,9 @@ Explain like a patient teacher to a beginner: simple words, everyday examples, t
 {NOTE_STYLE}
 {STYLE}
 {MATH_STYLE}
-{LINK_RULE}"""
-    try: a = ai(prompt, 5500, imgs or None)
+{LINK_RULE}
+{SHORT_RULE}"""
+    try: a = ai(prompt, 5500, imgs or None) + src_footer(me(), cid)
     except Exception as e:
         flash(f"AI error ({str(e)[:120]}).", "err"); return redirect(back)
     tag = ("📌 " + ctx[:70].replace("\n", " ") + "…\n") if ctx else ""
@@ -1451,7 +1474,7 @@ def doubt():
         elif not question and not imgs: flash("Type your doubt or upload a photo of your handwritten note.", "err")
         else:
             try:
-                ans = tutor(question, doc=doc, imgs=imgs, focus=focus_ctx(u))
+                ans = tutor(question, doc=doc, imgs=imgs, focus=focus_ctx(u)) + src_footer(u)
                 q("insert into doubts(user_id,question,answer) values(?,?,?)",
                   (u["id"], (question or "Handwritten note") + (" 📎" if imgs else ""), ans))
                 return redirect(url_for("doubt") + "#answers")
@@ -1470,7 +1493,7 @@ def ask_ai():
     if err: flash(err, "err"); return redirect(back)
     if not question and not imgs:
         flash("Type your question or upload a photo of your handwritten note.", "err"); return redirect(back)
-    try: ans = tutor(question, ctx=ctx, imgs=imgs, focus=focus_ctx(u))
+    try: ans = tutor(question, ctx=ctx, imgs=imgs, focus=focus_ctx(u)) + src_footer(u)
     except Exception as e:
         flash(f"AI error ({str(e)[:150]}).", "err"); return redirect(back)
     tag = ("📌 " + ctx[:90].replace("\n", " ") + "… → ") if ctx else ""
