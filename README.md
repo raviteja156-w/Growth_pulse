@@ -181,3 +181,7 @@ Not stored: the original uploaded syllabus files (only their text is kept) and h
   - Database connections wait for a free slot, password hashing is limited so memory does not run out, static files are cached by browsers.
   - Run `python loadtest.py --base https://YOUR-SITE --code CLASSCODE --users 100` to test.
 - **Render settings** (Start Command): `gunicorn app:app --timeout 300 --workers 1 --threads 32`. Use ONE worker (background jobs live in it). Use Supabase's **transaction pooler** connection string (port 6543) for `DATABASE_URL` when you expect many users.
+
+
+## Previous-year questions
+When a plan is built the app searches at least 4 different kinds of websites (university exam pages, paper archives, question-paper portals, study sites), drops dead links, keeps one page per website, and Groq merges them into one list of real questions (never invented; year and sources kept). MCQ and written tests use these questions first (weak topics first) and show a "Previous year" tag with year and source links. Page: Plan -> Previous year questions. Check live in Admin -> Tools -> "Test previous-year papers search".

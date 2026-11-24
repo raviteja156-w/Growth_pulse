@@ -1,8 +1,8 @@
 {% extends "base.html" %}{% block c %}
 <div class="max-w-3xl mx-auto mt-4"><a href="{{ url_for('admin') }}" class="text-cyan-300 text-sm">← Back to admin</a>
-<h2 class="text-2xl font-bold glow mt-2">🔎 Professor-notes search test: {{ subject }}</h2>
+<h2 class="text-2xl font-bold glow mt-2">🔎 {{ (what or 'professor notes')|capitalize }} search test: {{ subject }}</h2>
 <p class="text-sm text-slate-400">Took {{ secs }} s. This is a live test with the real Groq key (no cache).</p>
-<div class="g p-4 mt-3 {{ 'border-emerald-400' if srcs else 'border-rose-400' }}"><div class="font-bold {{ 'text-emerald-300' if srcs else 'text-rose-300' }}">{{ '✅ WORKING: ' ~ srcs|length ~ ' live source(s) found' if srcs else '❌ NOT WORKING: no live professor/university page found' }}</div>
+<div class="g p-4 mt-3 {{ 'border-emerald-400' if srcs else 'border-rose-400' }}"><div class="font-bold {{ 'text-emerald-300' if srcs else 'text-rose-300' }}">{{ '✅ WORKING: ' ~ srcs|length ~ ' live source(s) found' if srcs else '❌ NOT WORKING: no live page found' }}</div>
 <div class="text-sm mt-1 {{ 'text-slate-300' if 'OK' in groq_ok else 'text-rose-300' }}">{{ groq_ok }}</div></div>
 {% if srcs %}<div class="g p-4 mt-3"><div class="font-semibold mb-1">Sources that will be used</div><ul class="text-sm space-y-1">{% for s in srcs %}<li>{{ '🎓' if s.trust=='university' else '📖' if s.trust=='open course' else '🌐' }} <a class="text-cyan-300 underline" target="_blank" rel="noopener noreferrer" href="{{ s.url }}">{{ s.title }}</a> <span class="text-slate-400">· {{ s.by or s.trust }}</span></li>{% endfor %}</ul>
 <div class="text-xs text-slate-400 mt-2">Text collected for the AI checker: {{ raw|length }} characters.</div></div>{% endif %}

@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% block c %}
+<div class="max-w-3xl mx-auto mt-4"><a href="{{ url_for('course',cid=c.id) }}" class="text-cyan-300 text-sm">← Back to plan</a>
+<h2 class="text-2xl font-bold glow mt-2">📜 Previous year questions: {{ c.title }}</h2>
+<div class="text-xs text-slate-400">{{ items|length }} questions · {{ meta.sources|length if meta.sources else 0 }} websites{% if meta.date %} · checked {{ meta.date }}{% endif %}</div>
+{% if meta.sources %}<div class="g p-3 mt-3 text-sm"><div class="font-semibold mb-1">Websites compared</div><ol class="list-decimal ml-5 space-y-1">{% for s in meta.sources %}<li><a class="text-cyan-300 underline break-all" target="_blank" rel="noopener noreferrer" href="{{ s.url }}">{{ s.title }}</a> <span class="text-slate-400">· {{ s.kind or s.trust }}{% if s.year %} · {{ s.year }}{% endif %}</span></li>{% endfor %}</ol></div>{% endif %}
+<div class="flex gap-2 flex-wrap mt-3"><a class="btn !py-2 !min-h-0" href="{{ url_for('test_mcq',cid=c.id) }}">Take MCQ test</a><a class="btn !py-2 !min-h-0" href="{{ url_for('test_desc',cid=c.id,fresh=1) }}">Take written test</a>
+<form method="post" action="{{ url_for('pyq_refresh',cid=c.id) }}" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='⏳ Searching websites…'"><button class="btn !py-2 !min-h-0">🔎 Search again</button></form></div>
+{% if not items %}<div class="g p-4 mt-4 text-amber-300">No previous-year questions found yet. Tap "Search again". Tests will still be written in real exam style.</div>{% endif %}
+<div class="space-y-3 mt-4">{% for i in items %}<div class="g p-3"><div class="text-xs text-cyan-300">{{ i.topic }}{% if i.year %} · {{ i.year }}{% endif %}{% if i.marks %} · {{ i.marks }} marks{% endif %}{% if i.freq>1 %} · asked on {{ i.freq }} websites{% endif %}</div>{{ i.q|pp }}
+{% if i.links %}<div class="text-xs mt-1">{% for l in i.links %}<a class="underline text-cyan-300" target="_blank" rel="noopener noreferrer" href="{{ l.url }}">{{ l.title|truncate(40) }}</a> {% endfor %}</div>{% endif %}</div>{% endfor %}</div></div>{% endblock %}

@@ -17,7 +17,8 @@
 
 <h3 class="text-xl font-bold mt-8 mb-2">🧰 Tools</h3>
 <div class="g p-3 space-y-3"><a class="g inline-block px-4 py-2 text-sm border-rose-400" href="{{ url_for('admin_purge') }}">🧹 Remove unpaid students and unverified faculty</a>
-<form method="post" action="{{ url_for('admin_testnotes') }}" class="flex gap-2 flex-wrap"><input class="in flex-1 min-w-[160px]" name="subject" placeholder="Subject, e.g. Data Structures" value="Data Structures"><input class="in flex-1 min-w-[160px]" name="course" placeholder="Course, e.g. B.Tech CSE"><button class="btn" onclick="this.textContent='⏳ Testing (up to a minute)…'">Test professor-notes search</button></form></div>
+<form method="post" action="{{ url_for('admin_testnotes') }}" class="flex gap-2 flex-wrap"><input class="in flex-1 min-w-[160px]" name="subject" placeholder="Subject, e.g. Data Structures" value="Data Structures"><input class="in flex-1 min-w-[160px]" name="course" placeholder="Course, e.g. B.Tech CSE"><button class="btn" onclick="this.textContent='⏳ Testing (up to a minute)…'">Test professor-notes search</button></form>
+<form method="post" action="{{ url_for('admin_testpyq') }}" class="flex gap-2 flex-wrap mt-2"><input class="in flex-1 min-w-[160px]" name="subject" placeholder="Subject" value="Data Structures"><input class="in flex-1 min-w-[160px]" name="course" placeholder="Course"><button class="btn" onclick="this.textContent='⏳ Testing (up to a minute)…'">Test previous-year papers search</button></form></div>
 
 <h3 id="settings" class="text-xl font-bold mt-8 mb-2">💳 Payment settings</h3>
 <form method="post" action="{{ url_for('admin_settings') }}" enctype="multipart/form-data" class="g p-4 md:p-5 grid md:grid-cols-2 gap-4">

@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% block c %}{% from "_ask.html" import askbox %}
 <h2 class="text-2xl md:text-3xl font-bold glow">{{c.title}} <span class="text-sm text-cyan-300">{{c.exam}}{{ ' · Important questions' if qmode=='questions' }}</span></h2>
-<div class="flex gap-3 my-4 flex-wrap"><a class="btn" href="{{ url_for('test',cid=c.id) }}">📝 Take a test</a><a class="g px-4 py-2" href="{{ url_for('analysis',cid=c.id) }}">📊 Analysis</a>
+<div class="flex gap-3 my-4 flex-wrap"><a class="btn" href="{{ url_for('test',cid=c.id) }}">📝 Take a test</a><a class="g px-4 py-2" href="{{ url_for('analysis',cid=c.id) }}">📊 Analysis</a><a class="g px-4 py-2" href="{{ url_for('pyq_page',cid=c.id) }}">📜 Previous year questions{% if pcount %} ({{pcount}}){% endif %}</a>
 <form method="post" action="{{ url_for('retrain',cid=c.id) }}"><button class="g px-4 py-2">🔁 Retrain plan</button></form><button type="button" class="g px-4 py-2" onclick="dlPage('main','Study plan - {{ c.title|e }}')">⬇ Download plan</button></div>
 <form method="get" action="{{ url_for('explain',cid=c.id) }}" class="g p-4 mb-4 border-cyan-300 nodl" onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='⏳ Writing your notes…'">
 <label class="font-semibold text-cyan-300">🔎 Want a specific {{ 'question or topic' if qmode=='questions' else 'topic or question' }} explained? Type it here</label>

@@ -105,6 +105,8 @@ SCHEMA = [
  "alter table courses add column if not exists notes_src text default ''",
  "alter table courses add column if not exists notes_meta text default ''",
  "alter table courses add column if not exists concern text default ''",
+ "alter table courses add column if not exists pyq text default ''",
+ "alter table courses add column if not exists pyq_meta text default ''",
 ]
 def init_db():
     p = pool(); c = p.getconn()
@@ -549,6 +551,127 @@ Only list pages you really found; never guess a link. If you found no professor 
         except Exception as e: D.append("cache write failed: " + str(e)[:100])
     return out, raw
 
+# ---------------- previous-year questions: search 4+ different websites -> merge -> use in tests ----------------
+def parse_pyq_sources(text):
+    out = []
+    for blk in re.split(r"\n\s*-{3,}\s*(?:\n|$)", text or ""):
+        t = re.search(r"SOURCE:\s*(.+)", blk); u = re.search(r"URL:\s*<?(https?://[^\s>]+)", blk)
+        if not (t and u): continue
+        y = re.search(r"YEAR:\s*(.+)", blk); ty = re.search(r"TYPE:\s*(.+)", blk); qs = re.search(r"QUESTIONS:\s*(.*)", blk, re.S)
+        out.append(dict(title=clean(t.group(1))[:140], url=u.group(1).rstrip(").,;"), year=clean(y.group(1))[:40] if y else "", kind=clean(ty.group(1))[:30] if ty else "", notes=clean(qs.group(1))[:3500] if qs else ""))
+    return out[:8]
+
+def find_pyq(subject, course_name, exam, dbg=None, use_cache=True):
+    """Web search for real previous-year question papers on several DIFFERENT websites. Returns (sources, raw_text). Never raises."""
+    D = dbg if dbg is not None else []
+    k = os.getenv("GROQ_API_KEY")
+    if not k: D.append("GROQ_API_KEY is not set"); return [], ""
+    ckey = "pyq|" + hashlib.sha1(f"{subject.lower().strip()}|{(course_name or '').lower().strip()}".encode()).hexdigest()
+    if use_cache:
+        try:
+            row = q("select sources,raw from notes_cache where key=? and created > localtimestamp - interval '14 days'", (ckey,), one=True)
+            if row: D.append("served from cache (searched earlier for this subject)"); return json.loads(row["sources"]), row["raw"]
+        except Exception as e: D.append("cache read failed: " + str(e)[:100])
+    prompt = f"""Use web search. Find PREVIOUS YEAR QUESTION PAPERS (past exam papers) for the subject '{subject}' ({course_name or 'college course'}, {exam}), from the last 10 years.
+Search at least 4 DIFFERENT websites of different kinds: the university or college exam page, university or board question-paper archives, question-paper portals that collect old papers, and student study sites. Use a different website for each source.
+For each website write exactly:
+SOURCE: title of the page
+URL: the full real web address you found
+YEAR: exam year(s) shown on the page, or unknown
+TYPE: university or portal or study site or other
+QUESTIONS: the real questions copied from that page, one per line, up to 20
+---
+Only pages you really opened; never invent a question, year or link. If you found nothing write only NONE. Plain text, no markdown."""
+    tries = [(os.getenv("SEARCH_MODEL", "groq/compound"), False), ("groq/compound-mini", False), ("openai/gpt-oss-120b", True)]
+    srcs = []; hits = []
+    for m, browser in tries:
+        body = {"model": m, "temperature": 0.2, "messages": [{"role": "user", "content": prompt}]}
+        if browser: body.update(tools=[{"type": "browser_search"}], tool_choice="required", reasoning_effort="low", max_tokens=4500)
+        try:
+            r = groq_post(k, body, 60)
+            if not r.ok: D.append(f"{m}: HTTP {r.status_code} {r.text[:160]}"); continue
+            msg = r.json()["choices"][0]["message"]
+            srcs = parse_pyq_sources(msg.get("content") or "")
+            for ex_ in (msg.get("executed_tools") or []):
+                for x in ((ex_.get("search_results") or {}).get("results") or []):
+                    if isinstance(x, dict) and x.get("url"): hits.append(dict(title=clean(str(x.get("title") or x["url"]))[:140], url=x["url"], year="", kind="", notes=clean(str(x.get("content") or ""))[:3000]))
+            D.append(f"{m}: HTTP 200, {len(srcs)} websites in the answer, {len(hits)} pages opened by the search tool")
+            if len(srcs) >= 3 or (srcs or hits) and m != tries[0][0]: break
+        except Exception as e: D.append(f"{m}: error {str(e)[:140]}")
+    known = {x["url"] for x in srcs}
+    cand = srcs + [h for h in hits if h["url"] not in known][:6]
+    if not cand: D.append("no candidate pages at all"); return [], ""
+    with ThreadPoolExecutor(6) as ex: alive = list(ex.map(lambda x: link_alive(x["url"]), cand))
+    for x, ok_ in zip(cand, alive): D.append(("LIVE  " if ok_ else "DEAD  (dropped) ") + x["url"])
+    cand = [dict(x, trust=trust_of(x["url"])) for x, ok in zip(cand, alive) if ok]
+    seen = set(); uniq = []
+    for x in sorted(cand, key=lambda x: {"university": 0, "open course": 1, "web": 2}[x["trust"]]):     # one page per website, so the sources are really different sites
+        h = (urlparse(x["url"]).hostname or "").lower().removeprefix("www.")
+        if h not in seen: seen.add(h); uniq.append(x)
+    cand = uniq[:6]
+    raw = "\n---\n".join(f"SOURCE {i}: {x['title']} ({x['kind'] or x['trust']}, {x['year'] or 'year unknown'}) {x['url']}\n{x['notes']}" for i, x in enumerate(cand, 1) if x["notes"])[:14000]
+    out = [{k_: x.get(k_, "") for k_ in ("title", "url", "year", "kind", "trust")} for x in cand]
+    D.append(f"{len(out)} different websites kept")
+    if out and use_cache:
+        try: q("insert into notes_cache(key,sources,raw) values(?,?,?) on conflict(key) do update set sources=excluded.sources, raw=excluded.raw, created=localtimestamp", (ckey, json.dumps(out), raw))
+        except Exception as e: D.append("cache write failed: " + str(e)[:100])
+    return out, raw
+
+def build_pyq(track, title, course_name, exam, topics, papers="", found=None):
+    """Search (unless `found`) -> Groq merges the pages into one list of REAL distinct questions, with year and the sites each came from. Returns (pyq_json, meta_json); ('','') on failure."""
+    if track != "college": return "", ""
+    try:
+        sources, raw = found if found is not None else find_pyq(title, course_name, exam)
+        up = (papers or "").strip()
+        if not raw and not up: return "", json.dumps(dict(status="none", sources=[], count=0, date=time.strftime("%d %b %Y")))
+        names = [str(t.get("name", "")) for t in topics if isinstance(t, dict)][:25]
+        data = aj(f"""You are collecting PREVIOUS YEAR EXAM QUESTIONS for '{title}' ({course_name or 'college course'}, {exam}).
+Below are texts copied from {len(sources)} different web pages (numbered SOURCE 1, 2, ...){' and papers uploaded by the student (call them source 0)' if up else ''}.
+TEXT FROM THE PAGES:
+{raw[:11000] or '(none)'}
+{('UPLOADED PAPERS (source 0):' + chr(10) + up[:5000]) if up else ''}
+TASK: list every distinct real exam question that appears in this text. Merge duplicates and near-duplicates into one (keep the clearest wording, fix only typos, never change the meaning). For each give "q", "year" (only if the text states it, else ""), "topic" (the closest of these syllabus topics: {json.dumps(names)}), "marks" (only if stated, else ""), "src" (numbers of the sources it appears in).
+NEVER invent a question, year or source that is not in the text. Skip headings, instructions and anything that is not a question.
+Return JSON list only, at most 60 items, questions found in more sources first: [{{"q":"","year":"","topic":"","marks":"","src":[1]}}]""", 6500, effort="medium")
+        if isinstance(data, dict): data = next((v for v in data.values() if isinstance(v, list)), [])
+        items = []
+        for x in data:
+            if not isinstance(x, dict) or len(str(x.get("q", "")).strip()) < 12: continue
+            nums = sorted({int(n) for n in (x.get("src") or []) if str(n).isdigit() and 0 <= int(n) <= len(sources)})
+            items.append(dict(id=len(items) + 1, q=str(x["q"]).strip()[:600], year=str(x.get("year") or "").strip()[:12], topic=str(x.get("topic") or "General").strip()[:60] or "General",
+                              marks=str(x.get("marks") or "").strip()[:10], src=nums, freq=max(1, len(nums))))
+        items = items[:60]
+        meta = dict(status="found" if items else "none", sources=sources, count=len(items), date=time.strftime("%d %b %Y"), uploaded=bool(up))
+        return (json.dumps(items) if items else ""), json.dumps(meta)
+    except Exception as e:
+        print("pyq error", repr(e)[:200]); return "", ""
+
+def pyq_list(c):
+    try: return [i for i in json.loads(c.get("pyq") or "[]") if isinstance(i, dict)]
+    except Exception: return []
+def pyq_meta(c):
+    try: return json.loads(c.get("pyq_meta") or "{}") or {}
+    except Exception: return {}
+def pyq_links(c, it):
+    srcs = pyq_meta(c).get("sources") or []
+    return [{"title": srcs[n - 1]["title"], "url": srcs[n - 1]["url"]} for n in it.get("src", []) if 1 <= n <= len(srcs)]
+def pyq_pick(c, n):
+    """Real previous-year questions for a test: weak topics first, then the ones asked on most websites, then the newest."""
+    items = pyq_list(c); weak = {t for t, p in stats(c["id"]) if p < 70}
+    return sorted(items, key=lambda i: (i["topic"] not in weak, -i.get("freq", 1), -(int(i["year"]) if str(i.get("year", "")).isdigit() else 0)))[:n]
+def pyq_prompt(items):
+    if not items: return "No previous-year questions could be found online, so write the questions yourself in the style of real exams."
+    return "REAL PREVIOUS YEAR QUESTIONS found online (id | year | topic | question):\n" + "\n".join(f"{i['id']} | {i.get('year') or '?'} | {i['topic']} | {i['q']}" for i in items)
+def pyq_tag(c, qs, items):
+    """Attach year + source links to every test question that came from a previous paper."""
+    byid = {i["id"]: i for i in items}
+    for x in qs if isinstance(qs, list) else []:
+        if not isinstance(x, dict): continue
+        try: it = byid.get(int(x.get("pyq_id")))
+        except (TypeError, ValueError): it = None
+        if it: x["pyq"] = True; x["year"] = it.get("year", ""); x["links"] = pyq_links(c, it); x["freq"] = it.get("freq", 1)
+    return qs
+
 def verify_group(title, course_name, exam, names, raw, concern, state):
     """Step 2: Groq checks the collected notes, corrects them, adapts them to the student and writes the final handwritten notes."""
     web = raw or "(no professor notes could be fetched from the web this time: write them from your own expert knowledge and say so in 'unsure' where you are not certain)"
@@ -694,7 +817,7 @@ def mind(uid, cid=None):
     return s
 
 PRICE = int(os.getenv("PRICE", "50"))
-OPEN_EP = {"static", "welcome", "demo_done", "adminlogin", "adminlogout", "admin", "admin_act", "admin_user", "admin_settings", "admin_testmail", "admin_testnotes", "admin_purge", "shot", "bot"}
+OPEN_EP = {"static", "welcome", "demo_done", "adminlogin", "adminlogout", "admin", "admin_act", "admin_user", "admin_settings", "admin_testmail", "admin_testnotes", "admin_testpyq", "admin_purge", "shot", "bot"}
 _last_purge = [0.0]
 
 def purge():
@@ -1057,21 +1180,24 @@ Return JSON list: [{{"q":"the question","topic":"topic name"}}]""", 5000)
         plan = qplan(items, days); cnt = {}
         for x in items: cnt[x["topic"]] = cnt.get(x["topic"], 0) + 1
         topics = [{"name": t, "importance": min(5, 2 + k), "summary": f"{k} important question(s)"} for t, k in cnt.items()]
-        step("🔎 Finding professors' notes online, then ✅ AI is verifying them…")
-        nb, nm, nraw = build_notes(track, title, course_name, exam, topics, concern, state)
-        cid = q("insert into courses(user_id,track,title,exam,days,plan,cards,topics,src,research,qmode,notes,notes_meta,notes_src,concern) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (uid, track, title, exam, len(plan), json.dumps(plan), "[]", json.dumps(topics), src[:12000], "", "questions", nb, nm, nraw[:12000], concern), rid=True)
+        step("🔎 Finding professors' notes and previous-year papers online, then ✅ AI is verifying them…")
+        with ThreadPoolExecutor(2) as ex:
+            f_n = ex.submit(build_notes, track, title, course_name, exam, topics, concern, state); f_p = ex.submit(build_pyq, track, title, course_name, exam, topics, papers)
+            nb, nm, nraw = f_n.result(); pq, pm = f_p.result()
+        cid = q("insert into courses(user_id,track,title,exam,days,plan,cards,topics,src,research,qmode,notes,notes_meta,notes_src,concern,pyq,pyq_meta) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (uid, track, title, exam, len(plan), json.dumps(plan), "[]", json.dumps(topics), src[:12000], "", "questions", nb, nm, nraw[:12000], concern, pq, pm), rid=True)
         for x in items: q("insert into iq(course_id,n,topic,q) values(?,?,?,?)", (cid, x["n"], x["topic"], x["q"]))
         msg = f"{len(items)} important questions found and planned over {len(plan)} days. Open Day 1 to learn the answers."
     else:
         scope = ("Cover EVERY topic of the syllabus across the days, keeping the last day(s) for revision." if exam == "Semester Exam"
                  else "Use ONLY the topics the student listed." if track == "college" else "Build a skill roadmap from beginner to job-ready.")
         hint = [re.sub(r"\s+", ", ", src.strip()[:700])]
-        step("🔎 Step 1: finding well-rated professors' notes on the web…")
-        with ThreadPoolExecutor(2) as ex:
+        step("🔎 Step 1: finding professors' notes and previous-year papers on the web…")
+        with ThreadPoolExecutor(3) as ex:
             f_brief = ex.submit(research, title, exam, src)
             f_notes = ex.submit(find_notes, title, course_name, exam, hint, concern) if track == "college" else None
-            brief = f_brief.result(); found = f_notes.result() if f_notes else None
+            f_pyq = ex.submit(find_pyq, title, course_name, exam) if track == "college" else None
+            brief = f_brief.result(); found = f_notes.result() if f_notes else None; found_pyq = f_pyq.result() if f_pyq else None
         profn = "; ".join(s_["title"] + " (" + (s_["by"] or s_["trust"]) + ")" for s_ in (found[0] if found else []))
         step("🧠 Building your day-wise plan…")
         try:
@@ -1087,14 +1213,18 @@ Return JSON: {{"topics":[{{"name":"","importance":1-5,"summary":""}}],"plan":[{{
         except Exception as e:
             raise BuildError(f"AI could not build the plan ({str(e)[:150]}). Please try again in a minute.")
         step("✅ Step 2: AI is checking and correcting the notes, then writing them by hand…")
-        nb, nm, nraw = build_notes(track, title, course_name, exam, d["topics"], concern, state, found)
-        cid = q("insert into courses(user_id,track,title,exam,days,plan,cards,topics,src,research,notes,notes_meta,notes_src,concern) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (uid, track, title, exam, days, json.dumps(d["plan"]), "[]", json.dumps(d["topics"]), src[:12000], brief, nb, nm, nraw[:12000], concern), rid=True)
+        with ThreadPoolExecutor(2) as ex:
+            f_n = ex.submit(build_notes, track, title, course_name, exam, d["topics"], concern, state, found); f_p = ex.submit(build_pyq, track, title, course_name, exam, d["topics"], papers, found_pyq)
+            nb, nm, nraw = f_n.result(); pq, pm = f_p.result()
+        cid = q("insert into courses(user_id,track,title,exam,days,plan,cards,topics,src,research,notes,notes_meta,notes_src,concern,pyq,pyq_meta) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (uid, track, title, exam, days, json.dumps(d["plan"]), "[]", json.dumps(d["topics"]), src[:12000], brief, nb, nm, nraw[:12000], concern, pq, pm), rid=True)
         msg = "Your day-wise plan is ready! Open Day 1 to start learning."
     warn = ""
     if track == "college":
         if nb: msg += " 📚 Professor notes checked and verified by AI."
         else: warn = "Plan is ready, but the professor notes could not be verified this time. Tap 'Fetch & verify notes' on the plan page."
+        npq = len(json.loads(pq)) if pq else 0
+        if npq: msg += f" 📜 {npq} previous-year questions collected from {len((json.loads(pm) or {}).get('sources', []))} websites."
     return cid, msg, warn
 
 BUILDER = ThreadPoolExecutor(int(os.getenv("BUILD_WORKERS", "3")))     # plans being built at the same time; the rest wait in line
@@ -1183,7 +1313,7 @@ def course(cid):
     qday = {int(n): int(d["day"]) for d in plan for n in d.get("qs", [])}
     touch(c, nxt)
     return render_template("course.html", c=c, plan=plan, topics=json.loads(c["topics"]), st=stats(cid), done=done, opened=opened, nxt=nxt, qmode=qmode, qs=qs, qday=qday,
-                           nmeta=notes_meta(c), ncount=len(notes_list(c)))
+                           nmeta=notes_meta(c), ncount=len(notes_list(c)), pcount=len(pyq_list(c)), pmeta=pyq_meta(c))
 
 @app.route("/course/<int:cid>/notes")
 @paid
@@ -1334,20 +1464,43 @@ def day_done(cid, n):
 @paid
 def test(cid):
     c = get_course(cid); touch(c)
-    return render_template("test_choose.html", c=c)
+    return render_template("test_choose.html", c=c, pcount=len(pyq_list(c)), pmeta=pyq_meta(c))
+
+@app.route("/course/<int:cid>/pyq")
+@paid
+def pyq_page(cid):
+    c = get_course(cid); touch(c); items = pyq_list(c)
+    for i in items: i["links"] = pyq_links(c, i)
+    years = sorted({i["year"] for i in items if i.get("year")}, reverse=True)
+    return render_template("pyq.html", c=c, items=items, meta=pyq_meta(c), years=years)
+
+@app.route("/course/<int:cid>/pyq/refresh", methods=["POST"])
+@paid
+def pyq_refresh(cid):
+    """Search the websites again for previous-year papers (also for plans built before this feature existed)."""
+    c = get_course(cid); u = me(); cls = class_of(u)
+    pq, pm = build_pyq(c["track"], c["title"], cls["course"] if cls else "", c["exam"], json.loads(c["topics"] or "[]"), "")
+    if not pm: flash("Could not search for previous-year papers right now. Please try again in a minute.", "err")
+    else:
+        q("update courses set pyq=?, pyq_meta=? where id=?", (pq, pm, cid))
+        flash(f"📜 {len(json.loads(pq)) if pq else 0} previous-year questions found." if pq else "No previous-year papers could be found online for this subject.", "ok" if pq else "err")
+    return redirect(url_for("pyq_page", cid=cid))
 
 @app.route("/test/<int:cid>/mcq")
 @paid
 def test_mcq(cid):
-    c = get_course(cid)
+    c = get_course(cid); picked = pyq_pick(c, 6)
     try:
         t = aj(f"""Write 10 multiple-choice questions for '{c['title']}' ({c['exam']}). Topics: {c['topics'][:5000]}.
+{pyq_prompt(picked)}
+{'Use ALL of the real previous-year questions above as MCQs (keep their meaning, write 4 good options) and set "pyq_id" to the id of each one. Write the remaining questions yourself with "pyq_id": null.' if picked else ''}
 Questions that are frequently asked in real exams (found online, use these as a guide for style and difficulty): {(c['research'] or '')[:2500] or 'none'}
 {qctx(c)}
 {notes_rule(c, [t.get('name', '') for t in json.loads(c['topics'] or '[]')][:8], 3000)}
 {mind(session['uid'], cid)} Ask more questions on weak topics and on high-importance topics.
 {STYLE}
-Return JSON list: [{{"topic":"","q":"","options":["","","",""],"answer":0-3,"why":"short, simple explanation; for maths show the working line by line"}}]""")
+Return JSON list: [{{"topic":"","q":"","options":["","","",""],"answer":0-3,"why":"short, simple explanation; for maths show the working line by line","pyq_id":null}}]""")
+        t = pyq_tag(c, t, picked)
     except Exception as e:
         flash(f"Could not generate the test ({e}).", "err"); return redirect(url_for("course", cid=cid))
     q("update courses set test=? where id=?", (json.dumps(t), cid))
@@ -1358,14 +1511,18 @@ Return JSON list: [{{"topic":"","q":"","options":["","","",""],"answer":0-3,"why
 def test_desc(cid):
     c = get_course(cid); qs = json.loads(c["dtest"] or "[]")
     if request.args.get("fresh") or not qs:
+        picked = pyq_pick(c, 5)
         try:
             qs = aj(f"""Write 5 descriptive (written-answer) questions for '{c['title']}' ({c['exam']}). Topics: {c['topics'][:5000]}.
+{pyq_prompt(picked)}
+{'Use the real previous-year questions above as the questions (keep the wording and meaning exactly) and set "pyq_id" to the id of each. Only if fewer than 5 are given, write the rest yourself with "pyq_id": null.' if picked else ''}
 Questions that are frequently asked in real exams (found online, use these as a guide for style and difficulty): {(c['research'] or '')[:2500] or 'none'}
 {qctx(c)}
 If important questions are given above, use five of them (weak topics first) as the questions.
 {mind(session['uid'], cid)} Ask more on weak and high-importance topics.
 If the subject is mathematical or numerical, write problems to solve step by step and set "kind":"math"; otherwise "kind":"theory".
-Return JSON list: [{{"topic":"","kind":"math or theory","q":"","key_points":["",""],"model_answer":""}}] (key_points and model_answer are for grading only)""", 5000)
+Return JSON list: [{{"topic":"","kind":"math or theory","q":"","key_points":["",""],"model_answer":"","pyq_id":null}}] (key_points and model_answer are for grading only)""", 5000)
+            qs = pyq_tag(c, qs, picked)
         except Exception as e:
             flash(f"Could not generate the test ({e}).", "err"); return redirect(url_for("test", cid=cid))
         q("update courses set dtest=? where id=?", (json.dumps(qs), cid))
@@ -1634,6 +1791,16 @@ def admin_testnotes():
     try: srcs, raw = find_notes(subject, course, "Semester Exam", [subject], "", dbg=D, use_cache=False)
     except Exception as e: D.append("find_notes crashed: " + str(e)[:200])
     return render_template("admin_notes.html", subject=subject, D=D, srcs=srcs, raw=raw, groq_ok=groq_ok, secs=round(time.time() - t0, 1))
+
+@app.route("/admin/testpyq", methods=["POST"])
+def admin_testpyq():
+    """Live check of the previous-year-papers search."""
+    if not session.get("admin"): abort(403)
+    subject = request.form.get("subject", "").strip()[:100] or "Data Structures"; course = request.form.get("course", "").strip()[:100]
+    D = []; t0 = time.time(); srcs = []; raw = ""
+    try: srcs, raw = find_pyq(subject, course, "Semester Exam", dbg=D, use_cache=False)
+    except Exception as e: D.append("find_pyq crashed: " + str(e)[:200])
+    return render_template("admin_notes.html", subject=subject, D=D, srcs=srcs, raw=raw, groq_ok="Previous-year paper search (needs 4+ different websites to be strong)", secs=round(time.time() - t0, 1), what="previous-year papers")
 
 @app.route("/admin/settings", methods=["POST"])
 def admin_settings():
