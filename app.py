@@ -1,4 +1,4 @@
-import os, io, secrets, json, re, uuid, hmac, base64, mimetypes, functools, time, requests, smtplib, difflib
+import os, io, threading, hashlib, secrets, json, re, uuid, hmac, base64, mimetypes, functools, time, requests, smtplib, difflib
 from email.message import EmailMessage
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
@@ -12,11 +12,14 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "change-me")
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 86400      # browsers keep css/js/video for a day: far fewer requests when many students are online
 
 # ---------------- Supabase (Postgres) ----------------
 DBURL = os.getenv("DATABASE_URL", "").strip()
 if DBURL.startswith("postgres://"): DBURL = "postgresql://" + DBURL[len("postgres://"):]
 if DBURL.startswith("postgresql://") and "sslmode=" not in DBURL: DBURL += ("&" if "?" in DBURL else "?") + "sslmode=require"
+DB_POOL = int(os.getenv("DB_POOL", "10"))      # keep this <= your Supabase pooler connection limit
+_dbsem = threading.BoundedSemaphore(DB_POOL)
 _pool = None
 def pool():
     global _pool
@@ -24,10 +27,14 @@ def pool():
         if not DBURL: raise RuntimeError("DATABASE_URL is not set (add your Supabase connection string)")
         if not DBURL.startswith("postgresql://"):
             raise RuntimeError("DATABASE_URL must be the Supabase POSTGRES connection string (starts with postgresql://), not the https://...supabase.co project URL. Supabase > Connect > Session pooler.")
-        _pool = psycopg2.pool.ThreadedConnectionPool(1, 8, DBURL, connect_timeout=15)
+        _pool = psycopg2.pool.ThreadedConnectionPool(1, DB_POOL, DBURL, connect_timeout=15)
     return _pool
 
-def q(sql, a=(), one=False, rid=False):
+def q(*a, **k):
+    """Run SQL on Supabase (waits for a free connection when many users are online)."""
+    with _dbsem: return _q(*a, **k)
+
+def _q(sql, a=(), one=False, rid=False):
     """Run SQL on Supabase. Use ? placeholders. rid=True -> returns the new row id (inserts)."""
     sql = sql.replace("?", "%s") + (" returning id" if rid else "")
     for attempt in (1, 2):
@@ -88,6 +95,11 @@ SCHEMA = [
  "create index if not exists i_users_class on users(class_id)",
  "create index if not exists i_devices_user on devices(user_id)",
  "create index if not exists i_classes_fac on classes(faculty_id)",
+ "alter table users add column if not exists verified boolean default true",
+ "create table if not exists notes_cache(key text primary key,sources text default '[]',raw text default '',created timestamp default current_timestamp)",
+ "create table if not exists jobs(id serial primary key,user_id integer,kind text default 'build',track text default 'college',status text default 'queued',step text default '',msg text default '',warn text default '',first text default '',course_id integer,created timestamp default current_timestamp)",
+ "create index if not exists i_jobs_user on jobs(user_id)",
+ "update jobs set status='error', msg='The server restarted while building. Please try again.' where status in ('queued','running')",
  # ---- verified professor notes + the student's concern ----
  "alter table courses add column if not exists notes text default ''",
  "alter table courses add column if not exists notes_src text default ''",
@@ -110,6 +122,12 @@ except Exception as _e: print("DB INIT ERROR:", _e)
 # ---------------- accounts: student / faculty, 2-device limit ----------------
 MAX_DEVICES = int(os.getenv("MAX_DEVICES", "2"))
 CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"      # no 0/O/1/I/L so codes are easy to read out loud
+
+_HASH_SEM = threading.BoundedSemaphore(int(os.getenv("HASH_CONCURRENCY", "2")))
+def chk_pw(h, p):
+    with _HASH_SEM: return check_password_hash(h, p)
+def make_pw(p):
+    with _HASH_SEM: return generate_password_hash(p)
 
 def is_faculty(u): return bool(u) and (u.get("role") == "faculty")
 
@@ -365,6 +383,24 @@ def vision_models(k):
     except Exception as e: print("model list error", str(e)[:100])
     _VCACHE["v"] = out or ["qwen/qwen3.8-27b"]; return _VCACHE["v"]
 
+AI_SEM = threading.BoundedSemaphore(int(os.getenv("AI_CONCURRENCY", "6")))
+AI_WAIT = int(os.getenv("AI_WAIT", "100"))
+class BusyError(RuntimeError): pass
+def groq_post(key, body, timeout=140):
+    """Every AI call goes through here: at most AI_CONCURRENCY run at once for the whole server (so 100 students queue politely instead of
+    flooding Groq), and a 'too many requests' answer from Groq is waited out and retried instead of failing."""
+    if not AI_SEM.acquire(timeout=AI_WAIT): raise BusyError("Many students are using the AI right now. Please try again in a minute.")
+    try:
+        for i in range(3):
+            r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"}, json=body, timeout=timeout)
+            if r.status_code != 429 or i == 2: return r
+            try: wait = float(r.headers.get("retry-after", "") or 0)
+            except Exception: wait = 0
+            if wait > 20: return r
+            time.sleep(max(wait, 2 * (i + 1)))
+        return r
+    finally: AI_SEM.release()
+
 def ai(prompt, tokens=6000, images=None, clean_out=True, effort="low"):
     k = os.getenv("GROQ_API_KEY")
     if not k: raise RuntimeError("GROQ_API_KEY not set")
@@ -381,8 +417,7 @@ def ai(prompt, tokens=6000, images=None, clean_out=True, effort="low"):
                 "messages": [{"role": "system", "content": "You are a warm, expert tutor and coach. When JSON is requested reply with valid JSON only, no markdown fences."},
                              {"role": "user", "content": content}]}
         if "gpt-oss" in m: body["reasoning_effort"] = effort
-        r = requests.post("https://api.groq.com/openai/v1/chat/completions",
-                          headers={"Authorization": "Bearer " + k, "Content-Type": "application/json"}, json=body, timeout=140)
+        r = groq_post(k, body, 140)
         if r.ok:
             o = re.sub(r"<think>.*?</think>", "", r.json()["choices"][0]["message"]["content"] or "", flags=re.S).strip()
             return clean(o) if clean_out else o
@@ -408,8 +443,7 @@ Plain text only, short lines, no tables, no markdown, under 450 words. End with 
         body = {"model": m, "temperature": 0.3, "messages": [{"role": "user", "content": prompt}]}
         if browser: body.update(tools=[{"type": "browser_search"}], tool_choice="required", reasoning_effort="low", max_tokens=3000)
         try:
-            r = requests.post("https://api.groq.com/openai/v1/chat/completions",
-                              headers={"Authorization": "Bearer " + k, "Content-Type": "application/json"}, json=body, timeout=55)
+            r = groq_post(k, body, 55)
             if r.ok:
                 t = clean(r.json()["choices"][0]["message"]["content"] or "")
                 if len(t) > 80: return t[:5000]
@@ -457,10 +491,18 @@ def parse_sources(text):
                         why=clean(why.group(1))[:160] if why else "", notes=clean(n.group(1))[:2600] if n else ""))
     return out[:6]
 
-def find_notes(subject, course_name, exam, topic_names, concern=""):
-    """Step 1: web search for well-regarded lecture notes that professors / universities posted. Returns (sources, raw_text). Never raises."""
+def find_notes(subject, course_name, exam, topic_names, concern="", dbg=None, use_cache=True):
+    """Step 1: web search for well-regarded lecture notes that professors / universities posted. Returns (sources, raw_text). Never raises.
+    Results are cached 14 days per subject+course, so 100 students of one class cost ONE search. `dbg` (a list) collects what happened."""
+    D = dbg if dbg is not None else []
     k = os.getenv("GROQ_API_KEY")
-    if not k: return [], ""
+    if not k: D.append("GROQ_API_KEY is not set"); return [], ""
+    ckey = hashlib.sha1(f"{subject.lower().strip()}|{(course_name or '').lower().strip()}|{exam}".encode()).hexdigest()
+    if use_cache:
+        try:
+            row = q("select sources,raw from notes_cache where key=? and created > localtimestamp - interval '14 days'", (ckey,), one=True)
+            if row: D.append("served from cache (searched earlier for this subject)"); return json.loads(row["sources"]), row["raw"]
+        except Exception as e: D.append("cache read failed: " + str(e)[:100])
     prompt = f"""Use web search. Find the best and most trusted LECTURE NOTES / STUDY NOTES for the subject '{subject}' ({course_name or 'college course'}, {exam}) that were written or posted by PROFESSORS or lecturers: university course pages and PDFs (.edu, .ac.in, .ac.uk), NPTEL, MIT OpenCourseWare, IIT / NIT / university departments and similar. Prefer notes that are highly rated, widely recommended or widely used by students and teachers.
 Topics the student needs: {', '.join(topic_names)[:1200] or subject}.
 {('The student says: ' + concern[:300]) if concern else ''}
@@ -478,24 +520,30 @@ Only list pages you really found; never guess a link. If you found no professor 
         body = {"model": m, "temperature": 0.2, "messages": [{"role": "user", "content": prompt}]}
         if browser: body.update(tools=[{"type": "browser_search"}], tool_choice="required", reasoning_effort="low", max_tokens=4000)
         try:
-            r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers={"Authorization": "Bearer " + k, "Content-Type": "application/json"}, json=body, timeout=60)
-            if not r.ok: continue
+            r = groq_post(k, body, 60)
+            if not r.ok: D.append(f"{m}: HTTP {r.status_code} {r.text[:160]}"); continue
             msg = r.json()["choices"][0]["message"]
             srcs = parse_sources(msg.get("content") or "")
             for ex_ in (msg.get("executed_tools") or []):       # pages the search tool really opened
                 for x in ((ex_.get("search_results") or {}).get("results") or []):
                     if isinstance(x, dict) and x.get("url"): hits.append(dict(title=clean(str(x.get("title") or x["url"]))[:140], url=x["url"], by="", why="found by web search", notes=clean(str(x.get("content") or ""))[:2200]))
+            D.append(f"{m}: HTTP 200, {len(srcs)} sources in the answer, {len(hits)} pages opened by the search tool")
             if srcs or hits: break
-        except Exception as e: print("find_notes error", m, str(e)[:120])
+        except Exception as e: D.append(f"{m}: error {str(e)[:140]}")
     known = {s["url"] for s in srcs}
     cand = srcs + [h for h in hits if h["url"] not in known][:4 if srcs else 6]
-    if not cand: return [], ""
+    if not cand: D.append("no candidate pages at all"); return [], ""
     with ThreadPoolExecutor(6) as ex: alive = list(ex.map(lambda s: link_alive(s["url"]), cand))
+    for s_, ok_ in zip(cand, alive): D.append(("LIVE  " if ok_ else "DEAD  (dropped) ") + s_["url"])
     cand = [dict(s, trust=trust_of(s["url"])) for s, ok in zip(cand, alive) if ok]
     order = {"university": 0, "open course": 1, "web": 2}
     cand = sorted(cand, key=lambda s: order[s["trust"]])[:5]     # professor / university pages first
-    raw = "\n---\n".join(f"SOURCE: {s['title']} ({s['by'] or s['trust']}) {s['url']}\n{s['notes']}" for s in cand if s["notes"])
-    return [{k_: s[k_] for k_ in ("title", "url", "by", "why", "trust")} for s in cand], raw[:11000]
+    raw = "\n---\n".join(f"SOURCE: {s['title']} ({s['by'] or s['trust']}) {s['url']}\n{s['notes']}" for s in cand if s["notes"])[:11000]
+    out = [{k_: s[k_] for k_ in ("title", "url", "by", "why", "trust")} for s in cand]
+    if out and use_cache:
+        try: q("insert into notes_cache(key,sources,raw) values(?,?,?) on conflict(key) do update set sources=excluded.sources, raw=excluded.raw, created=localtimestamp", (ckey, json.dumps(out), raw))
+        except Exception as e: D.append("cache write failed: " + str(e)[:100])
+    return out, raw
 
 def verify_group(title, course_name, exam, names, raw, concern, state):
     """Step 2: Groq checks the collected notes, corrects them, adapts them to the student and writes the final handwritten notes."""
@@ -625,7 +673,7 @@ def mind(uid, cid=None):
     return s
 
 PRICE = int(os.getenv("PRICE", "50"))
-OPEN_EP = {"static", "welcome", "demo_done", "adminlogin", "adminlogout", "admin", "admin_act", "admin_user", "admin_settings", "admin_testmail", "shot", "bot"}
+OPEN_EP = {"static", "welcome", "demo_done", "adminlogin", "adminlogout", "admin", "admin_act", "admin_user", "admin_settings", "admin_testmail", "admin_testnotes", "admin_purge", "shot", "bot"}
 _last_purge = [0.0]
 
 def purge():
@@ -648,6 +696,8 @@ def gate():
     if u:
         if u.get("suspended"):
             session.clear(); flash("Your account is suspended. Please contact the admin.", "err"); return redirect(url_for("login"))
+        if is_faculty(u) and u.get("verified") is False:
+            session.clear(); flash("Your faculty account is awaiting admin verification.", "err"); return redirect(url_for("flogin"))
         dv = q("select sess_token from devices where user_id=? and device_id=?", (u["id"], request.cookies.get("gp_dev", "")), one=True)
         if not dv:
             session.clear(); flash("This device is not registered for your account. Please log in again.", "err"); return redirect(url_for("login"))
@@ -716,7 +766,7 @@ def register():
                "The two passwords do not match." if pw != pw2 else None)
         if not err:
             try:
-                uid = q("insert into users(name,email,phone,pw,role,class_id) values(?,?,?,?,'student',?)", (name, email, phone, generate_password_hash(pw), cls["id"]), rid=True)
+                uid = q("insert into users(name,email,phone,pw,role,class_id) values(?,?,?,?,'student',?)", (name, email, phone, make_pw(pw), cls["id"]), rid=True)
             except psycopg2.IntegrityError:
                 flash("This email is already registered. Please log in.", "err"); return redirect(url_for("login"))
             resp = login_user(q("select * from users where id=?", (uid,), one=True), url_for("dashboard"))
@@ -735,11 +785,13 @@ def do_login(kind):
         if "@" in ident: row = q("select * from users where email=?", (ident.lower(),), one=True); cands = [row] if row else []
         elif kind == "faculty" and ident: cands = q("select * from users where role='faculty' and lower(name)=?", (ident.lower(),))
         else: cands = []
-        u = next((x for x in cands if check_password_hash(x["pw"], pw)), None)
+        u = next((x for x in cands if chk_pw(x["pw"], pw)), None)
         if not u:
             note_fail(key); flash("Wrong " + ("name/email" if kind == "faculty" else "email") + " or password.", "err"); return render_template("auth.html", mode=mode)
         if u.get("suspended"):
             flash("Your account is suspended. Please contact the admin.", "err"); return render_template("auth.html", mode=mode)
+        if is_faculty(u) and u.get("verified") is False:
+            flash("Your faculty registration is awaiting verification by the admin. You can log in as soon as it is approved.", "err"); return render_template("auth.html", mode=mode)
         if kind == "faculty" and not is_faculty(u):
             flash("That is a student account. Please use Student login.", "err"); return redirect(url_for("login"))
         if kind == "student" and is_faculty(u):
@@ -759,24 +811,26 @@ def flogin(): return do_login("faculty")
 
 @app.route("/faculty/register", methods=["GET", "POST"])
 def fregister():
-    """Faculty give name + email only. A password is generated and emailed, so only the owner of the email can get in."""
+    """Faculty give name, email, contact and a password. The account stays 'awaiting verification' until the admin approves it."""
+    f = request.form
     if request.method == "POST":
-        name = request.form.get("name", "").strip()[:80]; email = request.form.get("email", "").strip().lower(); key = "freg|" + client_ip()
-        if not name or not EMAIL_RE.match(email): flash("Please enter your name and a valid email.", "err"); return render_template("auth.html", mode="fregister")
-        if throttled(key, 5, 3600): flash("Too many sign-ups from this network. Please try again later.", "err"); return render_template("auth.html", mode="fregister")
-        note_fail(key)
-        if q("select 1 from users where email=?", (email,), one=True):
-            flash("This email is already registered. Log in, or use 'Forgot password' to get a new password by email.", "err"); return redirect(url_for("flogin"))
-        pw = temp_password()
-        uid = q("insert into users(name,email,phone,pw,role,pay_status,access) values(?,?,?,?,'faculty','approved','staff')", (name, email, "", generate_password_hash(pw)), rid=True)
-        try:
-            send_mail(email, "Your GrowthPulse faculty password", f"Hello {name},\n\nYour GrowthPulse faculty account is ready.\n\nLogin with your name or email: {email}\nPassword: {pw}\n\nAfter you log in, open your dashboard and change this password. You can also add the courses and subjects you teach there to get your class code for students.\n\n- GrowthPulse")
-        except Exception as e:
-            q("delete from users where id=?", (uid,)); print("mail error", str(e)[:200])
-            flash("We could not email your password right now, so the account was not created. Please try again in a few minutes.", "err"); return render_template("auth.html", mode="fregister")
-        flash(f"Registered! Your password was emailed to {email} (check Spam too). Log in with it, then change it on your dashboard.", "ok")
-        return redirect(url_for("flogin"))
-    return render_template("auth.html", mode="fregister")
+        name = f.get("name", "").strip()[:80]; email = f.get("email", "").strip().lower(); phone = re.sub(r"[\s\-()+]", "", f.get("phone", "")); pw = f.get("password", ""); pw2 = f.get("confirm", "")
+        key = "freg|" + client_ip()
+        err = ("Please fill in every field." if not (name and email and phone and pw) else
+               "Please enter a valid email." if not EMAIL_RE.match(email) else
+               "Please enter a valid contact number (digits only)." if not re.fullmatch(r"\d{7,15}", phone) else
+               "Password must be at least 6 characters." if len(pw) < 6 else
+               "The two passwords do not match." if pw != pw2 else
+               "Too many sign-ups from this network. Please try again later." if throttled(key, 5, 3600) else None)
+        if not err:
+            note_fail(key)
+            try:
+                q("insert into users(name,email,phone,pw,role,pay_status,access,verified) values(?,?,?,?,'faculty','approved','staff',false)", (name, email, phone, make_pw(pw)))
+            except psycopg2.IntegrityError:
+                flash("This email is already registered. Please use Faculty login (if it still says awaiting verification, ask the admin).", "err"); return redirect(url_for("flogin"))
+            return render_template("fpending.html", name=name, email=email)
+        flash(err, "err")
+    return render_template("auth.html", mode="fregister", f=f)
 
 @app.route("/forgot", methods=["GET", "POST"])
 def forgot():
@@ -790,7 +844,7 @@ def forgot():
             pw = temp_password()
             try:
                 send_mail(email, "Your new GrowthPulse password", f"Hello {u['name']},\n\nYour new GrowthPulse password is: {pw}\n\nLog in with it and change it in your profile/dashboard. If you did not ask for this, please tell the admin.\n\n- GrowthPulse")
-                q("update users set pw=? where id=?", (generate_password_hash(pw), u["id"])); q("update devices set sess_token='' where user_id=?", (u["id"],))
+                q("update users set pw=? where id=?", (make_pw(pw), u["id"])); q("update devices set sess_token='' where user_id=?", (u["id"],))
             except Exception as e: print("mail error", str(e)[:200])
         flash("If that email is registered, a new password has been sent to it.", "ok"); return redirect(url_for("login"))
     return render_template("auth.html", mode="forgot")
@@ -801,11 +855,11 @@ def change_password():
     if not u: return redirect(url_for("login"))
     f = request.form; back = url_for("faculty_home") + "#password" if is_faculty(u) else url_for("profile") + "#password"; key = "pw|%s" % u["id"]
     if throttled(key): flash("Too many wrong attempts. Please wait 10 minutes.", "err"); return redirect(back)
-    if not check_password_hash(u["pw"], f.get("current", "")): note_fail(key); flash("Your current password is wrong.", "err"); return redirect(back)
+    if not chk_pw(u["pw"], f.get("current", "")): note_fail(key); flash("Your current password is wrong.", "err"); return redirect(back)
     new = f.get("new", "")
     if len(new) < 6: flash("New password must be at least 6 characters.", "err"); return redirect(back)
     if new != f.get("confirm", ""): flash("The two new passwords do not match.", "err"); return redirect(back)
-    q("update users set pw=? where id=?", (generate_password_hash(new), u["id"]))
+    q("update users set pw=? where id=?", (make_pw(new), u["id"]))
     q("update devices set sess_token='' where user_id=? and device_id<>?", (u["id"], request.cookies.get("gp_dev", "")))   # other devices must log in again
     flash("Password changed. Other devices were logged out.", "ok"); return redirect(back)
 
@@ -961,6 +1015,84 @@ def build_notes(track, title, course_name, exam, topics, concern, state, found=N
     except Exception as e:
         print("notes error", str(e)[:200]); return "", "", ""
 
+class BuildError(Exception): pass
+
+def run_build(p, step):
+    """The slow part of 'Build my plan' (web search + several AI calls). Runs in a background thread, never inside a web request."""
+    uid, track, qmode, exam, days, src, papers, title, concern, course_name = (p[k] for k in ("uid", "track", "qmode", "exam", "days", "src", "papers", "title", "concern", "course_name"))
+    state = mind(uid)
+    if qmode == "questions":
+        step("📄 Reading your important questions…")
+        try:
+            items = aj(f"""Below is text from an internal-exam IMPORTANT QUESTIONS list for the subject '{title}' (it may be messy text copied from a PDF). Extract every distinct question, fix obvious typos, keep at most 60. Give each a short topic name (2 to 4 words).
+Text: {src[:12000]}
+Return JSON list: [{{"q":"the question","topic":"topic name"}}]""", 5000)
+            if isinstance(items, dict): items = next((v for v in items.values() if isinstance(v, list)), [])
+            items = [{"n": i + 1, "q": str(x.get("q", "")).strip(), "topic": (str(x.get("topic") or "General").strip()[:60] or "General")}
+                     for i, x in enumerate(items[:60]) if isinstance(x, dict) and str(x.get("q", "")).strip()]
+            if not items: raise ValueError("no questions found in the file")
+        except Exception as e:
+            raise BuildError(f"Could not read the questions ({str(e)[:150]}). Try a clearer PDF or type them one per line.")
+        plan = qplan(items, days); cnt = {}
+        for x in items: cnt[x["topic"]] = cnt.get(x["topic"], 0) + 1
+        topics = [{"name": t, "importance": min(5, 2 + k), "summary": f"{k} important question(s)"} for t, k in cnt.items()]
+        step("🔎 Finding professors' notes online, then ✅ AI is verifying them…")
+        nb, nm, nraw = build_notes(track, title, course_name, exam, topics, concern, state)
+        cid = q("insert into courses(user_id,track,title,exam,days,plan,cards,topics,src,research,qmode,notes,notes_meta,notes_src,concern) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (uid, track, title, exam, len(plan), json.dumps(plan), "[]", json.dumps(topics), src[:12000], "", "questions", nb, nm, nraw[:12000], concern), rid=True)
+        for x in items: q("insert into iq(course_id,n,topic,q) values(?,?,?,?)", (cid, x["n"], x["topic"], x["q"]))
+        msg = f"{len(items)} important questions found and planned over {len(plan)} days. Open Day 1 to learn the answers."
+    else:
+        scope = ("Cover EVERY topic of the syllabus across the days, keeping the last day(s) for revision." if exam == "Semester Exam"
+                 else "Use ONLY the topics the student listed." if track == "college" else "Build a skill roadmap from beginner to job-ready.")
+        hint = [re.sub(r"\s+", ", ", src.strip()[:700])]
+        step("🔎 Step 1: finding well-rated professors' notes on the web…")
+        with ThreadPoolExecutor(2) as ex:
+            f_brief = ex.submit(research, title, exam, src)
+            f_notes = ex.submit(find_notes, title, course_name, exam, hint, concern) if track == "college" else None
+            brief = f_brief.result(); found = f_notes.result() if f_notes else None
+        profn = "; ".join(s_["title"] + " (" + (s_["by"] or s_["trust"]) + ")" for s_ in (found[0] if found else []))
+        step("🧠 Building your day-wise plan…")
+        try:
+            d = aj(f"""Create a study programme. Exam: {exam}. Subject/goal: {title}. Days available: {days}. {scope}
+{state}
+The student's own concern: {concern or 'none given'}
+Topics that repeat in previous papers (give higher importance): {papers[:5000] or 'none given'}
+Real-world research from the web (use it to decide which topics are really important): {brief[:3500] or 'not available'}
+Professors' notes found online (what they cover is what the exam usually needs): {profn or 'none found'}
+Content: {src[:12000]}
+Return JSON: {{"topics":[{{"name":"","importance":1-5,"summary":""}}],"plan":[{{"day":1,"focus":["topic"],"tip":""}}] (exactly {days} days)}}""", 6000)
+            d["topics"]; d["plan"]
+        except Exception as e:
+            raise BuildError(f"AI could not build the plan ({str(e)[:150]}). Please try again in a minute.")
+        step("✅ Step 2: AI is checking and correcting the notes, then writing them by hand…")
+        nb, nm, nraw = build_notes(track, title, course_name, exam, d["topics"], concern, state, found)
+        cid = q("insert into courses(user_id,track,title,exam,days,plan,cards,topics,src,research,notes,notes_meta,notes_src,concern) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (uid, track, title, exam, days, json.dumps(d["plan"]), "[]", json.dumps(d["topics"]), src[:12000], brief, nb, nm, nraw[:12000], concern), rid=True)
+        msg = "Your day-wise plan is ready! Open Day 1 to start learning."
+    warn = ""
+    if track == "college":
+        if nb: msg += " 📚 Professor notes checked and verified by AI."
+        else: warn = "Plan is ready, but the professor notes could not be verified this time. Tap 'Fetch & verify notes' on the plan page."
+    return cid, msg, warn
+
+BUILDER = ThreadPoolExecutor(int(os.getenv("BUILD_WORKERS", "3")))     # plans being built at the same time; the rest wait in line
+
+def job_runner(jid, p):
+    def step(t):
+        try: q("update jobs set step=? where id=?", (t, jid))
+        except Exception: pass
+    try:
+        q("update jobs set status='running', step='Starting…' where id=?", (jid,))
+        cid, msg, warn = run_build(p, step)
+        q("update jobs set status='done', course_id=?, msg=?, warn=?, step='Done' where id=?", (cid, msg, warn, jid))
+    except BuildError as e:
+        q("update jobs set status='error', msg=? where id=?", (str(e)[:400], jid))
+    except Exception as e:
+        print("build crashed", repr(e)[:300])
+        try: q("update jobs set status='error', msg=? where id=?", ("Something went wrong while building your plan. Please try again.", jid))
+        except Exception: pass
+
 @app.route("/new/<track>", methods=["GET", "POST"])
 @paid
 def new(track):
@@ -971,69 +1103,46 @@ def new(track):
     cls = class_of(u); course_name = cls["course"] if cls else ""; subs = subjects_of(cls) if cls else []
     if request.method == "POST":
         f = request.form
+        act = q("select id from jobs where user_id=? and kind='build' and status in ('queued','running') and created > localtimestamp - interval '20 minutes' order by id desc limit 1", (u["id"],), one=True)
+        if act: flash("Your plan is already being built. Showing its progress.", "ok"); return redirect(url_for("build_wait", jid=act["id"]))
         qmode = "questions" if (track == "college" and f.get("qmode") == "questions") else "syllabus"
         exam = f.get("exam", "Semester Exam") if track == "college" else "Personal Growth"
         days = max(1, min(int(f.get("days") or 7), 120))
         src = "\n".join(text_from(x) for x in request.files.getlist("files")) + "\n" + f.get("topics", "")
         papers = "\n".join(text_from(x) for x in request.files.getlist("papers"))
         title = f.get("title") or u["goal"]
-        concern = f.get("concern", "").strip()[:300]
-        state = mind(u["id"])
         if track == "personal": src = f"Profession: {u['profession']}. Wants to become: {u['goal']}. Notes: " + src
         if len(src.strip()) < 15:
             flash("Please upload a file or type your " + ("important questions." if qmode == "questions" else "syllabus topics."), "err"); return redirect(request.url)
-        if qmode == "questions":
-            try:
-                items = aj(f"""Below is text from an internal-exam IMPORTANT QUESTIONS list for the subject '{title}' (it may be messy text copied from a PDF). Extract every distinct question, fix obvious typos, keep at most 60. Give each a short topic name (2 to 4 words).
-Text: {src[:12000]}
-Return JSON list: [{{"q":"the question","topic":"topic name"}}]""", 5000)
-                if isinstance(items, dict): items = next((v for v in items.values() if isinstance(v, list)), [])
-                items = [{"n": i + 1, "q": str(x.get("q", "")).strip(), "topic": (str(x.get("topic") or "General").strip()[:60] or "General")}
-                         for i, x in enumerate(items[:60]) if isinstance(x, dict) and str(x.get("q", "")).strip()]
-                if not items: raise ValueError("no questions found in the file")
-            except Exception as e:
-                flash(f"Could not read the questions ({str(e)[:150]}). Try a clearer PDF or type them one per line.", "err"); return redirect(request.url)
-            plan = qplan(items, days); cnt = {}
-            for x in items: cnt[x["topic"]] = cnt.get(x["topic"], 0) + 1
-            topics = [{"name": t, "importance": min(5, 2 + k), "summary": f"{k} important question(s)"} for t, k in cnt.items()]
-            # STEP 1+2: professors' notes from the web, then Groq verifies them for this student
-            nb, nm, nraw = build_notes(track, title, course_name, exam, topics, concern, state)
-            cid = q("insert into courses(user_id,track,title,exam,days,plan,cards,topics,src,research,qmode,notes,notes_meta,notes_src,concern) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (u["id"], track, title, exam, len(plan), json.dumps(plan), "[]", json.dumps(topics), src[:12000], "", "questions", nb, nm, nraw[:12000], concern), rid=True)
-            for x in items: q("insert into iq(course_id,n,topic,q) values(?,?,?,?)", (cid, x["n"], x["topic"], x["q"]))
-            flash(f"{len(items)} important questions found and planned over {len(plan)} days. Open Day 1 to learn the answers.", "ok")
-        else:
-            scope = ("Cover EVERY topic of the syllabus across the days, keeping the last day(s) for revision." if exam == "Semester Exam"
-                     else "Use ONLY the topics the student listed." if track == "college" else "Build a skill roadmap from beginner to job-ready.")
-            hint = [re.sub(r"\s+", ", ", src.strip()[:700])]
-            # STEP 1: web research + the well-rated professor notes, searched at the same time
-            with ThreadPoolExecutor(2) as ex:
-                f_brief = ex.submit(research, title, exam, src)
-                f_notes = ex.submit(find_notes, title, course_name, exam, hint, concern) if track == "college" else None
-                brief = f_brief.result(); found = f_notes.result() if f_notes else None
-            profn = "; ".join(s_["title"] + " (" + (s_["by"] or s_["trust"]) + ")" for s_ in (found[0] if found else []))
-            try:
-                d = aj(f"""Create a study programme. Exam: {exam}. Subject/goal: {title}. Days available: {days}. {scope}
-{state}
-The student's own concern: {concern or 'none given'}
-Topics that repeat in previous papers (give higher importance): {papers[:5000] or 'none given'}
-Real-world research from the web (use it to decide which topics are really important): {brief[:3500] or 'not available'}
-Professors' notes found online (what they cover is what the exam usually needs): {profn or 'none found'}
-Content: {src[:12000]}
-Return JSON: {{"topics":[{{"name":"","importance":1-5,"summary":""}}],"plan":[{{"day":1,"focus":["topic"],"tip":""}}] (exactly {days} days)}}""", 6000)
-            except Exception as e:
-                flash(f"AI could not build the plan ({e}). Check the API key and try again.", "err"); return redirect(request.url)
-            # STEP 2: Groq checks and corrects the professor notes and rewrites them as handwritten notes for this student
-            nb, nm, nraw = build_notes(track, title, course_name, exam, d["topics"], concern, state, found)
-            cid = q("insert into courses(user_id,track,title,exam,days,plan,cards,topics,src,research,notes,notes_meta,notes_src,concern) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (u["id"], track, title, exam, days, json.dumps(d["plan"]), "[]", json.dumps(d["topics"]), src[:12000], brief, nb, nm, nraw[:12000], concern), rid=True)
-            flash("Your day-wise plan is ready! Open Day 1 to start learning.", "ok")
-        if track == "college":
-            flash("📚 Professor notes checked and verified by AI." if nb else "Plan is ready. Professor notes could not be verified this time: tap 'Fetch & verify notes' on the plan page.", "ok" if nb else "err")
-        first = f.get("firstq", "").strip()
-        if first: return redirect(url_for("explain", cid=cid, t=first))
-        return redirect(url_for("course", cid=cid))
+        params = dict(uid=u["id"], track=track, qmode=qmode, exam=exam, days=days, src=src, papers=papers, title=title, concern=f.get("concern", "").strip()[:300], course_name=course_name)
+        jid = q("insert into jobs(user_id,kind,track,status,step,first) values(?,'build',?,'queued','Waiting in line…',?)", (u["id"], track, f.get("firstq", "").strip()[:300]), rid=True)
+        BUILDER.submit(job_runner, jid, params)
+        return redirect(url_for("build_wait", jid=jid))
     return render_template("new.html", track=track, subs=subs, course_name=course_name, pre=request.args.get("subject", ""))
+
+@app.route("/build/<int:jid>")
+@paid
+def build_wait(jid):
+    u = me(); j = q("select *, (created < localtimestamp - interval '20 minutes') as stale from jobs where id=? and user_id=?", (jid, u["id"]), one=True)
+    if not j: abort(404)
+    if j["status"] in ("queued", "running") and j["stale"]:
+        q("update jobs set status='error', msg='Building took too long. Please try again.' where id=?", (jid,)); j = dict(j, status="error", msg="Building took too long. Please try again.")
+    if j["status"] == "done":
+        flash(j["msg"], "ok")
+        if j["warn"]: flash(j["warn"], "err")
+        if j["first"]: return redirect(url_for("explain", cid=j["course_id"], t=j["first"]))
+        return redirect(url_for("course", cid=j["course_id"]))
+    if j["status"] == "error":
+        flash(j["msg"] or "Could not build the plan. Please try again.", "err"); return redirect(url_for("new", track=j["track"]))
+    return render_template("build.html", j=j)
+
+@app.route("/build/<int:jid>/status")
+@paid
+def build_status(jid):
+    j = q("select id,status,step from jobs where id=? and user_id=?", (jid, me()["id"]), one=True)
+    if not j: abort(404)
+    ahead = q("select count(*) n from jobs where status='queued' and id<?", (jid,), one=True)["n"] if j["status"] == "queued" else 0
+    return jsonify(status=j["status"], step=j["step"], ahead=ahead)
 
 def get_course(cid):
     c = q("select * from courses where id=? and user_id=?", (cid, session.get("uid")), one=True)
@@ -1410,14 +1519,15 @@ def admin():
     pend_n = q("select count(*) n from payments where status='pending'", one=True)["n"]
     st = q("""select count(*) total, count(*) filter (where pay_status='approved') active, count(*) filter (where access='free') free,
               count(*) filter (where suspended) susp, count(*) filter (where last_seen > localtimestamp - interval '10 minutes') online from users""", one=True)
-    users = q("""select id,name,email,phone,pay_status,access,suspended,last_seen,role,(select count(*) from devices d where d.user_id=users.id) as dev_count,
+    pending_fac = q("select id,name,email,phone from users where role='faculty' and verified=false order by id")
+    users = q("""select id,name,email,phone,pay_status,access,suspended,last_seen,role,verified,(select count(*) from devices d where d.user_id=users.id) as dev_count,
                  (select c.course||' · '||c.code from classes c where c.id=users.class_id) as class_label,
                  coalesce(last_seen > localtimestamp - interval '10 minutes', false) as online from users order by last_seen desc nulls last, id desc""")
     ps = q("""select p.id,p.status,p.created,p.decided,(p.img is not null) as has_img,u.name,u.email,u.phone
               from payments p join users u on u.id=p.user_id order by p.id desc limit 100""")
     classes = q("""select c.id,c.course,c.code,c.subjects,f.name as fname,f.email as femail,(select count(*) from users s where s.class_id=c.id) as n
                    from classes c left join users f on f.id=c.faculty_id order by c.id desc""")
-    return render_template("admin.html", classes=classes, cfg=pay_cfg(), ps=ps, users=users, st=st, money=paid_n * PRICE, paid_n=paid_n, pend_n=pend_n, price=PRICE)
+    return render_template("admin.html", pending_fac=pending_fac, classes=classes, cfg=pay_cfg(), ps=ps, users=users, st=st, money=paid_n * PRICE, paid_n=paid_n, pend_n=pend_n, price=PRICE)
 
 @app.route("/admin/<int:pid>/<act>", methods=["POST"])
 def admin_act(pid, act):
@@ -1436,10 +1546,14 @@ def admin_user(uid, act):
     sql = {"suspend": "suspended=true", "unsuspend": "suspended=false",
            "grant": "pay_status='approved', access='free', suspended=false", "revoke": "pay_status='none', access=''",
            "resetdevice": "device_id=''"}.get(act)
+    if act == "approvefac":
+        q("update users set verified=true where id=? and role='faculty'", (uid,)); flash("Faculty approved. They can log in now.", "ok"); return redirect(url_for("admin") + "#faculty")
+    if act == "delete":
+        delete_user(uid); flash("User removed with all their data.", "ok"); return redirect(url_for("admin") + "#users")
     if act == "newpass":      # works even when email is broken: the admin sees the password and passes it on
         u = q("select name,email from users where id=?", (uid,), one=True)
         if not u: abort(404)
-        pw = temp_password(); q("update users set pw=? where id=?", (generate_password_hash(pw), uid)); q("update devices set sess_token='' where user_id=?", (uid,))
+        pw = temp_password(); q("update users set pw=? where id=?", (make_pw(pw), uid)); q("update devices set sess_token='' where user_id=?", (uid,))
         flash(f"New password for {u['name']} ({u['email']}): {pw}  (give it to them; they should change it after login)", "ok")
         return redirect(url_for("admin") + "#users")
     if sql:
@@ -1460,6 +1574,43 @@ def admin_testmail():
             flash(f"Email accepted by the mail service for {to} ({res or 'ok'}). If it does not arrive, check Spam and your Brevo sender/logs.", "ok")
         except Exception as e: flash(f"Email FAILED: {str(e)[:300]}", "err")
     return redirect(url_for("admin"))
+
+def delete_user(uid):
+    """Remove a user and everything that belongs to them."""
+    cids = [r["id"] for r in q("select id from courses where user_id=?", (uid,))]
+    if cids:
+        for t in ("lessons", "chats", "progress", "results", "iq", "topicx"): q(f"delete from {t} where course_id = any(?)", (cids,))
+    for t in ("courses", "doubts", "checkins", "payments", "devices", "jobs"): q(f"delete from {t} where user_id=?", (uid,))
+    cl = [r["id"] for r in q("select id from classes where faculty_id=?", (uid,))]
+    if cl: q("update users set class_id=null where class_id = any(?)", (cl,)); q("delete from classes where faculty_id=?", (uid,))
+    q("delete from users where id=?", (uid,))
+
+# who can be cleaned up: students who never paid and have no free access (a screenshot waiting for approval is NOT removed) + faculty never verified
+PURGE_WHERE = """((coalesce(role,'student')<>'faculty' and coalesce(pay_status,'none') in ('none','rejected','') and coalesce(access,'')='')
+                 or (role='faculty' and verified=false))"""
+
+@app.route("/admin/purge", methods=["GET", "POST"])
+def admin_purge():
+    if not session.get("admin"): abort(403)
+    if request.method == "POST":
+        ids = [int(x) for x in request.form.getlist("ids") if x.isdigit()]
+        ok = [r["id"] for r in q(f"select id from users where id = any(?) and {PURGE_WHERE}", (ids,))] if ids else []
+        for i in ok: delete_user(i)
+        flash(f"Removed {len(ok)} user(s).", "ok"); return redirect(url_for("admin") + "#users")
+    rows = q(f"select id,name,email,phone,role,pay_status,verified from users where {PURGE_WHERE} order by role, id")
+    return render_template("admin_purge.html", rows=rows)
+
+@app.route("/admin/testnotes", methods=["POST"])
+def admin_testnotes():
+    """Live check of the professor-notes search: shows every step, so you can see whether it really works."""
+    if not session.get("admin"): abort(403)
+    subject = request.form.get("subject", "").strip()[:100] or "Data Structures"; course = request.form.get("course", "").strip()[:100]
+    D = []; t0 = time.time(); srcs = []; raw = ""; groq_ok = ""
+    try: ai("Reply with the single word OK.", 50); groq_ok = "Groq text model answers: OK"
+    except Exception as e: groq_ok = "Groq text model FAILED: " + str(e)[:200]
+    try: srcs, raw = find_notes(subject, course, "Semester Exam", [subject], "", dbg=D, use_cache=False)
+    except Exception as e: D.append("find_notes crashed: " + str(e)[:200])
+    return render_template("admin_notes.html", subject=subject, D=D, srcs=srcs, raw=raw, groq_ok=groq_ok, secs=round(time.time() - t0, 1))
 
 @app.route("/admin/settings", methods=["POST"])
 def admin_settings():

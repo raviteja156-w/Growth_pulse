@@ -9,6 +9,16 @@
 <div class="g p-4"><div class="mini text-amber-300">⏳ Pending payments</div><div class="text-3xl font-bold">{{ pend_n }}</div></div>
 <div class="g p-4"><div class="mini text-rose-300">🚫 Suspended</div><div class="text-3xl font-bold">{{ st.susp }}</div></div></div>
 
+<h3 id="faculty" class="text-xl font-bold mt-8 mb-2">👩‍🏫 Faculty waiting for verification {% if pending_fac %}<span class="text-sm bg-amber-400 text-slate-900 rounded-full px-2 py-0.5">{{ pending_fac|length }}</span>{% endif %}</h3>
+<div class="g p-3 space-y-2">{% for f in pending_fac %}<div class="flex items-center justify-between gap-2 flex-wrap rounded-lg bg-slate-900/50 p-3"><div><b>{{ f.name }}</b><div class="text-xs text-slate-400">{{ f.email }} · {{ f.phone }}</div></div>
+<div class="flex gap-2"><form method="post" action="{{ url_for('admin_user',uid=f.id,act='approvefac') }}"><button class="btn !py-2 !min-h-0">✅ Approve</button></form>
+<form method="post" action="{{ url_for('admin_user',uid=f.id,act='delete') }}" onsubmit="return confirm('Reject and delete this registration?')"><button class="g px-3 py-2 text-sm border-rose-400">❌ Reject</button></form></div></div>
+{% else %}<p class="text-sm text-slate-400">No faculty are waiting.</p>{% endfor %}</div>
+
+<h3 class="text-xl font-bold mt-8 mb-2">🧰 Tools</h3>
+<div class="g p-3 space-y-3"><a class="g inline-block px-4 py-2 text-sm border-rose-400" href="{{ url_for('admin_purge') }}">🧹 Remove unpaid students and unverified faculty</a>
+<form method="post" action="{{ url_for('admin_testnotes') }}" class="flex gap-2 flex-wrap"><input class="in flex-1 min-w-[160px]" name="subject" placeholder="Subject, e.g. Data Structures" value="Data Structures"><input class="in flex-1 min-w-[160px]" name="course" placeholder="Course, e.g. B.Tech CSE"><button class="btn" onclick="this.textContent='⏳ Testing (up to a minute)…'">Test professor-notes search</button></form></div>
+
 <h3 id="settings" class="text-xl font-bold mt-8 mb-2">💳 Payment settings</h3>
 <form method="post" action="{{ url_for('admin_settings') }}" enctype="multipart/form-data" class="g p-4 md:p-5 grid md:grid-cols-2 gap-4">
 <div class="space-y-3"><div><label class="text-sm text-slate-300">Name shown to users (PhonePe / account name)</label><input class="in" name="name" value="{{ cfg.name }}" placeholder="e.g. Raviteja" maxlength="80"></div>
@@ -27,13 +37,15 @@
 <h3 id="users" class="text-xl font-bold mt-8 mb-2">All users</h3>
 <input class="in mb-2" placeholder="🔎 Search a user by name, email or phone…" oninput="var v=this.value.toLowerCase();document.querySelectorAll('#ut tbody tr').forEach(function(r){r.style.display=r.textContent.toLowerCase().includes(v)?'':'none'})">
 <div class="g p-2 overflow-x-auto"><table id="ut" class="w-full text-sm min-w-[720px]"><thead class="text-slate-400 text-left"><tr><th class="p-2">Name</th><th class="p-2">Contact</th><th class="p-2">Status</th><th class="p-2">Last seen</th><th class="p-2">Control</th></tr></thead><tbody>
-{% for u in users %}<tr class="border-t border-slate-700/60 align-top"><td class="p-2"><span class="{{ 'text-emerald-400' if u.online else 'text-slate-600' }}">●</span> <b>{{ u.name }}</b> {% if u.role=='faculty' %}<span class="text-xs text-violet-300">👩‍🏫 faculty</span>{% endif %}{% if u.class_label %}<div class="text-xs text-slate-400">{{ u.class_label }}</div>{% endif %}</td>
+{% for u in users %}<tr class="border-t border-slate-700/60 align-top"><td class="p-2"><span class="{{ 'text-emerald-400' if u.online else 'text-slate-600' }}">●</span> <b>{{ u.name }}</b> {% if u.role=='faculty' %}<span class="text-xs text-violet-300">👩‍🏫 faculty</span>{% if u.verified==false %} <span class="text-xs text-amber-300">⏳ awaiting approval</span>{% endif %}{% endif %}{% if u.class_label %}<div class="text-xs text-slate-400">{{ u.class_label }}</div>{% endif %}</td>
 <td class="p-2">{{ u.email }}<div class="text-xs text-slate-400">{{ u.phone }}</div></td>
 <td class="p-2">{% if u.suspended %}🚫 Suspended{% elif u.pay_status=='approved' and u.access=='free' %}🎁 Free access{% elif u.pay_status=='approved' %}✅ Paid{% elif u.pay_status=='pending' %}⏳ Pending{% elif u.pay_status=='rejected' %}❌ Rejected{% else %}🔒 Locked{% endif %}</td>
 <td class="p-2 text-xs">{{ u.last_seen.strftime('%d %b, %I:%M %p') if u.last_seen else 'never' }}</td>
 <td class="p-2"><div class="flex gap-2 flex-wrap">
 {% if u.suspended %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='unsuspend') }}"><button class="btn !py-1 !min-h-0 text-xs">Un-suspend</button></form>
 {% else %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='suspend') }}" onsubmit="return confirm('Suspend {{ u.name|e }}?')"><button class="g px-3 py-1 text-xs border-rose-400">Suspend</button></form>{% endif %}
+{% if u.role=='faculty' and u.verified==false %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='approvefac') }}"><button class="g px-3 py-1 text-xs border-emerald-400">✅ Approve faculty</button></form>{% endif %}
+<form method="post" action="{{ url_for('admin_user',uid=u.id,act='delete') }}" onsubmit="return confirm('Delete {{ u.name|e }} and ALL their data permanently?')"><button class="g px-3 py-1 text-xs border-rose-400">🗑 Delete</button></form>
 <form method="post" action="{{ url_for('admin_user',uid=u.id,act='newpass') }}" onsubmit="return confirm('Set a NEW password for this user? It will be shown to you on screen.')"><button class="g px-3 py-1 text-xs border-cyan-400">🔑 New password</button></form>
 {% if u.dev_count %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='resetdevice') }}" onsubmit="return confirm('Remove all devices of this user? They can then log in again on up to 2 devices.')"><button class="g px-3 py-1 text-xs border-amber-400">📱 Reset devices ({{ u.dev_count }}/2)</button></form>{% endif %}
 {% if u.pay_status=='approved' %}<form method="post" action="{{ url_for('admin_user',uid=u.id,act='revoke') }}" onsubmit="return confirm('Remove access for {{ u.name|e }}?')"><button class="g px-3 py-1 text-xs">Remove access</button></form>

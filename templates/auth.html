@@ -29,16 +29,20 @@
 
 {% elif mode=='flogin' %}
 <h2 class="text-2xl font-bold glow">Faculty login</h2>
-<input class="in" name="email" placeholder="Your name or email" autocomplete="username" required><input class="in" type="password" name="password" placeholder="Password (sent to your email)" required>
+<input class="in" name="email" placeholder="Your name or email" autocomplete="username" required><input class="in" type="password" name="password" placeholder="Password" required>
 <button class="btn w-full">Log in</button>
-<p class="text-sm text-slate-300">New faculty? <a class="text-cyan-300" href="{{ url_for('fregister') }}">Register</a> · <a class="text-cyan-300" href="{{ url_for('forgot') }}">Forgot password?</a></p>
+<p class="text-sm text-slate-300">New faculty? <a class="text-cyan-300" href="{{ url_for('fregister') }}">Register</a> · Forgot password? Ask the admin to set a new one.</p>
 <p class="text-xs text-slate-400">One account works on 2 devices at most.</p>
 
 {% elif mode=='fregister' %}
 <h2 class="text-2xl font-bold glow">Faculty registration</h2>
-<input class="in" name="name" placeholder="Your name" required><input class="in" type="email" name="email" placeholder="Your email" required>
-<p class="text-sm text-slate-300">📧 Your password will be <b>sent to this email</b>. After you log in you can change it on your dashboard.</p>
-<button class="btn w-full">Register &amp; email my password</button>
+<input class="in" name="name" placeholder="Your name" value="{{ f.get('name','') if f }}" required>
+<input class="in" type="email" name="email" placeholder="Your email" value="{{ f.get('email','') if f }}" required>
+<input class="in" type="tel" inputmode="numeric" name="phone" placeholder="Contact number" value="{{ f.get('phone','') if f }}" required>
+<input class="in" type="password" name="password" placeholder="Create password (min 6 characters)" minlength="6" autocomplete="new-password" required>
+<input class="in" type="password" name="confirm" placeholder="Confirm password" minlength="6" autocomplete="new-password" required>
+<p class="text-sm text-slate-300">🛡️ After you submit, the admin verifies your registration. You can log in once it is approved.</p>
+<button class="btn w-full">Submit for verification</button>
 <p class="text-sm text-slate-300">Already registered? <a class="text-cyan-300" href="{{ url_for('flogin') }}">Faculty login</a></p>
 
 {% elif mode=='forgot' %}

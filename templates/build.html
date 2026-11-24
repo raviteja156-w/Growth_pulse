@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% block t %}Building your plan – GrowthPulse{% endblock %}{% block c %}
+<div class="max-w-md mx-auto mt-10 g p-8 text-center">
+<div class="w-14 h-14 mx-auto rounded-full border-4 border-cyan-300 border-t-transparent animate-spin" aria-hidden="true"></div>
+<h2 class="text-2xl font-bold glow mt-4">Building your plan</h2>
+<p id="st" class="text-slate-200 mt-3">{{ j.step }}</p>
+<p id="qn" class="text-sm text-amber-300 mt-1"></p>
+<p class="text-xs text-slate-400 mt-4">This takes one to two minutes. You can keep this page open. It moves on by itself when the plan is ready.</p></div>
+<script>
+var u={{ url_for('build_status',jid=j.id)|tojson }},bad=0;
+function tick(){fetch(u,{credentials:'same-origin'}).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(d){bad=0;
+ if(d.status==='done'||d.status==='error'){location.reload();return}
+ document.getElementById('st').textContent=d.step||'';
+ document.getElementById('qn').textContent=d.status==='queued'&&d.ahead>0?('Many students are building plans. '+d.ahead+' ahead of you…'):'';
+ setTimeout(tick,3000)}).catch(function(){if(++bad<40)setTimeout(tick,4000)})}
+setTimeout(tick,2500);
+</script>{% endblock %}

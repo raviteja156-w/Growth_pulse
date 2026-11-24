@@ -166,3 +166,18 @@ Not stored: the original uploaded syllabus files (only their text is kept) and h
 
 ### New environment variables
 `BREVO_API_KEY` + `MAIL_FROM` (or `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`), `MAX_DEVICES` (default 2), optional `SEARCH_MODEL`.
+
+---
+
+## 🚦 Faculty approval, clean-up and running 100 students
+
+- **Faculty sign-up** asks name, email, contact, password + confirm. The account shows *Awaiting verification by admin* until the admin approves it (Admin → Faculty waiting for verification). No email is needed.
+- **Admin → Tools → Remove unpaid students**: lists students who never paid / have no free access, and faculty never approved, with checkboxes. A payment screenshot that is still waiting for approval is never removed. Each user also has a Delete button.
+- **Admin → Tools → Test professor-notes search** runs the notes search live and shows every step, so you can see if it works.
+- **Built for many users at once:**
+  - *Build my plan* runs in the background with a progress page (users wait in line if many build at once).
+  - All AI calls share one limiter and wait/retry when Groq says "too many requests"; if it is very busy users see a friendly message.
+  - Professor-notes searches are cached 14 days per subject, so a whole class costs one search.
+  - Database connections wait for a free slot, password hashing is limited so memory does not run out, static files are cached by browsers.
+  - Run `python loadtest.py --base https://YOUR-SITE --code CLASSCODE --users 100` to test.
+- **Render settings** (Start Command): `gunicorn app:app --timeout 300 --workers 1 --threads 32`. Use ONE worker (background jobs live in it). Use Supabase's **transaction pooler** connection string (port 6543) for `DATABASE_URL` when you expect many users.

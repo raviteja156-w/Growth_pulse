@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block t %}Awaiting verification – GrowthPulse{% endblock %}{% block c %}
+<div class="max-w-md mx-auto mt-10 g p-8 text-center border-emerald-400">
+<svg viewBox="0 0 52 52" class="w-24 h-24 mx-auto" aria-hidden="true"><circle cx="26" cy="26" r="24" fill="none" stroke="#34d399" stroke-width="3" class="ck-c"/><path d="M14 27l8 8 16-17" fill="none" stroke="#34d399" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" class="ck-p"/></svg>
+<style>.ck-c{stroke-dasharray:152;stroke-dashoffset:152;animation:ckd .7s ease forwards}.ck-p{stroke-dasharray:40;stroke-dashoffset:40;animation:ckd .5s .6s ease forwards}@keyframes ckd{to{stroke-dashoffset:0}}</style>
+<h2 class="text-2xl font-bold text-emerald-300 mt-3">Registration submitted</h2>
+<div class="mt-2 inline-block rounded-full bg-amber-400/15 border border-amber-400 text-amber-300 px-4 py-1 text-sm font-semibold">⏳ Awaiting verification by admin</div>
+<p class="text-slate-300 mt-4 text-sm">Thank you, {{ name }}. The admin will verify your details ({{ email }}). After approval you can log in with your email and password.</p>
+<a class="btn mt-5 inline-block" href="{{ url_for('flogin') }}">Go to faculty login</a></div>{% endblock %}

@@ -3,7 +3,7 @@ services:
     name: growthpulse
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --timeout 300 --workers 2 --threads 4
+    startCommand: gunicorn app:app --timeout 300 --workers 1 --threads 32
     envVars:
       - {key: PYTHON_VERSION, value: 3.11.9}
       - {key: SECRET_KEY, generateValue: true}
@@ -15,3 +15,6 @@ services:
       - {key: BREVO_API_KEY, sync: false}   # sends faculty passwords by email (Render free plan blocks SMTP)
       - {key: MAIL_FROM, sync: false}       # a sender address verified in Brevo
       - {key: MAX_DEVICES, value: "2"}
+      - {key: DB_POOL, value: "10"}          # database connections; keep <= your Supabase pooler limit
+      - {key: AI_CONCURRENCY, value: "6"}    # AI calls running at once for the whole site (others wait in line)
+      - {key: BUILD_WORKERS, value: "3"}     # study plans being built at once
